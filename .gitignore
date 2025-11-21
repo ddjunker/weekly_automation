@@ -1,0 +1,73 @@
+# ===============================
+# Weekly Automation Project
+# Safe and recommended ignores
+# ===============================
+
+# -------------------------------
+# Python
+# -------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments (if you ever use them)
+.env/
+venv/
+.venv/
+
+# -------------------------------
+# Credentials / Secrets
+# -------------------------------
+openlp_env.py
+*.env
+*.ini
+secrets.json
+config.yml
+config.yaml
+
+# -------------------------------
+# Logs / Temp files
+# -------------------------------
+*.log
+temp/
+cache/
+*.tmp
+*.bak
+
+# -------------------------------
+# Obsidian (workspace files)
+# (keep core vault content in Git; ignore UI state)
+# -------------------------------
+.obsidian/workspace*
+.obsidian/workspace.json
+.obsidian/backups/
+.obsidian/plugins/
+.obsidian/cache/
+.obsidian/.DS_Store
+
+# -------------------------------
+# LibreOffice temporary artifacts
+# -------------------------------
+.~lock*
+*.fodt#
+*.odt#
+*.ott#
+*.tmp
+
+# -------------------------------
+# Windows system files
+# -------------------------------
+desktop.ini
+Thumbs.db
+
+# -------------------------------
+# Editor crap (VSCode, etc)
+# -------------------------------
+.vscode/
+*.code-workspace
+
+# -------------------------------
+# Misc
+# -------------------------------
+.DS_Store
