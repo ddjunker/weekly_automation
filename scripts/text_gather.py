@@ -1,58 +1,73 @@
-#!/usr/bin/env python3
 """
-Weekly Automation: text_gather
+text_gather.py – Weekly Info Gathering (Final Version, Refactored)
+------------------------------------------------------------------
+Uses flexible source URLs embedded in the Master markdown file.
+Resolves Master file paths through weekly_config.ini (via config module).
+Fetches Scripture from OpenLP Bible databases.
+Captures Offertory/Benediction text through Firefox + clipboard.
 
-- Fills in scripture text blocks for Elkton and LB from the local OpenLP Bible
-  databases via openlp_env.get_scripture_text().
-- Optionally captures Offertory and Commission & Benediction text by opening
-  a Firefox window and letting the user copy from their preferred websites.
-
-Usage:
-    python text_gather.py --master "Master 2025-11-23.md" [--no-browser]
-
-This script assumes the "master" markdown file contains lines like:
-
-    {scripture_ref_1}
-    Psalm 123
-
-    {scripture_text_1_elkton}
-    {scripture_text_1_lb}
-
-and single placeholders for:
-
-    {offertory_text}
-    {benediction}
+Now refactored to use:
+  • scripts.utils.placeholder.append_below_placeholder
+  • scripts.utils.text_clean.clean_markdown
 """
-
-from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import re
 from pathlib import Path
-from typing import List, Tuple
 
-from utils import openlp_env
+# Project utilities
+from scripts.utils import openlp_env
+from scripts.utils.config import config
+from scripts.utils.placeholder import append_below_placeholder
+from scripts.utils.text_clean import clean_markdown
 
+
+# =========================================================
+# BROWSER SUPPORT
+# =========================================================
 try:
-    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+    from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     import pyperclip
-
     HAVE_BROWSER_DEPS = True
-except Exception:  # ImportError or others
-    sync_playwright = None  # type: ignore
-    PlaywrightTimeoutError = Exception  # type: ignore
-    pyperclip = None  # type: ignore
+except ImportError:
     HAVE_BROWSER_DEPS = False
 
 
-# ---------------------------------------------------------------------------
-# Basic helpers
-# ---------------------------------------------------------------------------
+# =========================================================
+# CONFIG + MASTER PATH RESOLUTION
+# =========================================================
 
-# Adjust if you ever move the worship folder; for now this matches your setup.
-WORSHIP_DIR = Path(r"C:\Users\Public\Documents\Area42\Worship")
+def resolve_master_path(master_arg: str) -> Path:
+    """
+    Resolve the Master markdown file path:
 
+    1. If master_arg is an absolute path → return it unchanged.
+    2. Otherwise → return config.worship_dir / master_arg
+    3. worship_dir must exist (strict behavior).
+
+    Returns:
+        Path object to the master file.
+    """
+
+    mp = Path(master_arg)
+
+    # Case 1: absolute path override
+    if mp.is_absolute():
+        return mp
+
+    # Case 2: relative → use worship_dir
+    worship = config.worship_dir.expanduser().resolve()
+    if not worship.exists():
+        raise FileNotFoundError(f"Worship directory not found: {worship}")
+
+    return worship / master_arg
+
+
+# =========================================================
+# MARKDOWN HELPERS
+# =========================================================
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -62,300 +77,292 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def clean_text(s: str) -> str:
+def get_source_url(md: str, key: str) -> str | None:
     """
-    Very light normalisation:
-    - normalise newlines
-    - strip leading/trailing whitespace
-    - collapse runs of blank lines to at most two.
-    """
-    s = s.replace("\r\n", "\n").replace("\r", "\n")
-    lines = [ln.rstrip() for ln in s.split("\n")]
-    cleaned: List[str] = []
-    blank_count = 0
-    for ln in lines:
-        if ln.strip():
-            cleaned.append(ln)
-            blank_count = 0
-        else:
-            blank_count += 1
-            if blank_count <= 2:
-                cleaned.append("")
-    return "\n".join(cleaned).strip()
-
-
-# ---------------------------------------------------------------------------
-# Placeholder helpers
-# ---------------------------------------------------------------------------
-
-def append_below_placeholder(md: str, placeholder: str, block: str) -> str:
-    """
-    Insert `block` (as a markdown paragraph) immediately *after* the line that
-    contains `{placeholder}`. If the placeholder is not found, return md.
-    """
-    pattern = re.compile(rf"^.*\{{{re.escape(placeholder)}}}.*$", re.MULTILINE)
-    m = pattern.search(md)
-    if not m:
-        logging.warning("Placeholder {%s} not found; cannot append.", placeholder)
-        return md
-
-    insert_pos = m.end()
-    block = clean_text(block)
-    if not block:
-        return md
-
-    insert_segment = "\n\n" + block + "\n\n"
-    return md[:insert_pos] + insert_segment + md[insert_pos:]
-
-
-def replace_placeholder_with_block(md: str, placeholder: str, block: str) -> str:
-    """
-    Replace a line that consists solely of `{placeholder}` with `block`.
-
-    If the placeholder is not present, the original string is returned.
-    """
-    pattern = re.compile(rf"^\s*\{{{re.escape(placeholder)}}}\s*$", re.MULTILINE)
-    block = clean_text(block)
-    if not block:
-        return md
-    new_md, count = pattern.subn(block, md, count=1)
-    if count == 0:
-        logging.warning("Placeholder {%s} not found; cannot replace.", placeholder)
-        return md
-    return new_md
-
-
-# ---------------------------------------------------------------------------
-# Scripture handling (via openlp_env.get_scripture_text)
-# ---------------------------------------------------------------------------
-
-SCRIPTURE_REF_RE = re.compile(r"\{scripture_ref_(\d+)\}")
-
-
-def find_scripture_requests(md: str) -> List[Tuple[int, str]]:
-    """
-    Scan the master markdown for patterns like:
-
-        {scripture_ref_1}
-        Psalm 123
-
-    and return a list of (n, reference_string).
+    Read URL immediately following placeholder {key}.
+    Returns None if missing or equal to 'na'.
     """
     lines = md.splitlines()
-    requests: List[Tuple[int, str]] = []
-
     for i, line in enumerate(lines):
-        m = SCRIPTURE_REF_RE.search(line.strip())
-        if not m:
-            continue
-        n = int(m.group(1))
-
-        # Look for the first non-empty line *after* the placeholder
-        ref = ""
-        for j in range(i + 1, len(lines)):
-            candidate = lines[j].strip()
-            if candidate:
-                ref = candidate
-                break
-
-        if ref:
-            requests.append((n, ref))
-        else:
-            logging.warning("No reference text found after {scripture_ref_%d}", n)
-
-    return requests
+        if line.strip() == f"{{{key}}}":
+            if i + 1 < len(lines):
+                candidate = lines[i + 1].strip()
+                if candidate.lower().startswith("http") and candidate.lower() != "na":
+                    return candidate
+    return None
 
 
-def insert_scripture_blocks(md: str) -> str:
+# =========================================================
+# BROWSER CLIPBOARD GATHERING
+# =========================================================
+
+def capture_clipboard(browser, label: str, url: str) -> str:
     """
-    For each {scripture_ref_n} / reference pair, fetch scripture for Elkton and LB
-    and replace:
-
-        {scripture_text_n_elkton}
-        {scripture_text_n_lb}
-    """
-    requests = find_scripture_requests(md)
-    if not requests:
-        logging.info("Found 0 scripture references.")
-        return md
-
-    logging.info("Found %d scripture reference(s).", len(requests))
-
-    for n, ref in requests:
-        elk_ph = f"scripture_text_{n}_elkton"
-        lb_ph = f"scripture_text_{n}_lb"
-        logging.info("Fetching scripture %d: %s", n, ref)
-
-        try:
-            elk_text = openlp_env.get_scripture_text("elkton", ref)
-        except Exception as e:
-            logging.error("Elkton scripture fetch failed for '%s': %s", ref, e)
-            elk_text = ""
-
-        try:
-            lb_text = openlp_env.get_scripture_text("lb", ref)
-        except Exception as e:
-            logging.error("LB scripture fetch failed for '%s': %s", ref, e)
-            lb_text = ""
-
-        if elk_text:
-            md = replace_placeholder_with_block(md, elk_ph, elk_text)
-        if lb_text:
-            md = replace_placeholder_with_block(md, lb_ph, lb_text)
-
-    return md
-
-
-# ---------------------------------------------------------------------------
-# Manual browser capture helpers (Offertory & Benediction)
-# ---------------------------------------------------------------------------
-
-def capture_clipboard(browser, label: str, url: str | None = None) -> str:
-    """
-    Open a new page in the given browser, optionally navigate to `url`,
-    then let the user select and copy text (Ctrl+C). The function waits
-    for the user to press Enter in the terminal and returns the clipboard
-    contents as a string.
+    Load URL in a new browser tab, user selects text & copies with Ctrl+C,
+    then press Enter in the terminal. Clipboard text returned.
     """
     page = browser.new_page()
-    print(f"\n=== {label} ===")
-    if url:
-        print(url)
+    print(f"\n=== {label} ===\n{url}")
+
+    try:
         page.goto(url, wait_until="domcontentloaded")
         try:
             page.wait_for_load_state("networkidle", timeout=15000)
-        except PlaywrightTimeoutError:
+        except PWTimeout:
+            # Not fatal; we just continue with whatever loaded.
             pass
-    else:
-        print("A browser window has opened. Navigate to the site you want to copy from.")
+    except Exception as e:
+        print(f"[Browser Error] Unable to open URL: {e}")
+        page.close()
+        return ""
 
-    # Clear clipboard if possible
-    if pyperclip is not None:
-        try:
-            pyperclip.copy("")
-        except Exception:
-            pass
+    try:
+        pyperclip.copy("")
+    except Exception:
+        pass
 
-    print("Select the text you want, press Ctrl+C, then press Enter here.")
-    input("> ")
+    print("Select text on page, press Ctrl+C, then press Enter here.")
+    input()
 
-    text = ""
-    if pyperclip is not None:
-        try:
-            text = (pyperclip.paste() or "").strip()
-        except Exception as e:
-            logging.error("Failed to read clipboard: %s", e)
-
+    text = (pyperclip.paste() or "").strip()
     page.close()
 
-    if not text:
-        print(f"[Warning] No text captured for {label}.")
+    if text:
+        print(f"Captured {len(text)} characters.")
     else:
-        print(f"[OK] Captured {len(text)} characters for {label}.")
-
+        print("[Warning] No text captured.")
     return text
 
 
-def gather_offertory_and_benediction_via_browser(md: str, use_browser: bool) -> str:
+def gather_offertory_and_benediction(md: str, use_browser: bool) -> str:
     """
-    If `use_browser` is True and browser dependencies are available, open a
-    Firefox window and let the user copy Offertory and Benediction text into
-    the clipboard, inserting the results into the master markdown.
+    Reads Offertory and Benediction URLs from the Master markdown
+    and performs browser-based clipboard capture.
     """
     if not use_browser:
-        logging.info("Skipping browser-based capture (per --no-browser).")
+        logging.info("Skipping browser capture (--no-browser).")
         return md
 
     if not HAVE_BROWSER_DEPS:
-        logging.error(
-            "playwright/pyperclip not available; cannot do browser capture. "
-            "Install 'playwright' (and run 'playwright install firefox') "
-            "and 'pyperclip' if you want this feature."
-        )
+        logging.error("Missing playwright/pyperclip; skipping browser capture.")
         return md
 
-    need_offertory = "{offertory_text}" in md
-    need_benediction = "{benediction}" in md
-
-    if not (need_offertory or need_benediction):
-        logging.info("No offertory/benediction placeholders found; skipping browser capture.")
-        return md
+    offertory_url    = get_source_url(md, "offertory_source")
+    offertory_alt    = get_source_url(md, "offertory_source_alt")
+    benediction_url  = get_source_url(md, "benediction_source")
+    benediction_alt  = get_source_url(md, "benediction_source_alt")
 
     with sync_playwright() as p:
-        browser = p.firefox.launch(headless=False)
-        try:
-            if need_offertory:
-                off_text = capture_clipboard(
-                    browser,
-                    "Offertory text (navigate to UMFMichigan / Discipleship or other source as desired)",
-                    None,
-                )
-                if off_text:
-                    md = append_below_placeholder(md, "offertory_text", off_text)
+        profile_dir = Path.home() / ".weekly_info_profile"
+        browser = p.firefox.launch_persistent_context(str(profile_dir), headless=False)
 
-            if need_benediction:
-                ben_text = capture_clipboard(
-                    browser,
-                    "Commission & Benediction (e.g., from Laughingbird)",
-                    None,
-                )
-                if ben_text:
-                    md = replace_placeholder_with_block(md, "benediction", ben_text)
+        try:
+            if offertory_url:
+                txt = capture_clipboard(browser, "Offertory (Primary)", offertory_url)
+                if txt:
+                    txt = clean_markdown(txt)
+                    md = append_below_placeholder(md, "offertory_source_text", txt)
+
+            if offertory_alt:
+                txt = capture_clipboard(browser, "Offertory (Alternate)", offertory_alt)
+                if txt:
+                    txt = clean_markdown(txt)
+                    md = append_below_placeholder(md, "offertory_source_alt_text", txt)
+
+            if benediction_url:
+                txt = capture_clipboard(browser, "Benediction (Primary)", benediction_url)
+                if txt:
+                    txt = clean_markdown(txt)
+                    md = append_below_placeholder(md, "benediction_text", txt)
+
+            if benediction_alt:
+                txt = capture_clipboard(browser, "Benediction (Alternate)", benediction_alt)
+                if txt:
+                    txt = clean_markdown(txt)
+                    md = append_below_placeholder(md, "benediction_text_alt", txt)
+
         finally:
             browser.close()
 
     return md
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+# =========================================================
+# SCRIPTURE GATHERING
+# =========================================================
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Weekly Automation: text gathering")
+def extract_scripture_refs(md: str):
+    """
+    Returns list of (placeholder, reference) extracted from markdown.
+    """
+    result = []
+    pattern = re.compile(r"\{(scripture_ref_[^}]+)\}")
+    lines = md.splitlines()
+
+    for i, line in enumerate(lines):
+        m = pattern.search(line)
+        if m:
+            key = m.group(1)
+            ref_line = ""
+            for j in range(i + 1, len(lines)):
+                if lines[j].strip():
+                    ref_line = lines[j].strip()
+                    break
+            if ref_line:
+                result.append((key, ref_line))
+
+    return result
+
+
+def gather_scripture_text(md: str) -> str:
+    refs = extract_scripture_refs(md)
+    for key, ref in refs:
+        for church in ["elkton", "lb"]:
+            try:
+                text = openlp_env.get_scripture_text(church, ref)
+            except Exception as e:
+                text = f"[Scripture error: {e}]"
+
+            md = append_below_placeholder(md, f"{key}_{church}", text)
+
+    return md
+
+
+from scripts.utils.openlp_helpers import load_openlp_custom_slide
+from scripts.utils.placeholder import append_below_placeholder, replace_placeholder
+from scripts.utils.text_clean import clean_markdown
+
+
+def gather_custom_slides(md: str) -> str:
+    """
+    Fetch Call to Worship (CtW) and Affirmation of Faith (AoF)
+    from each church's OpenLP custom slide database.
+
+    Requirements:
+      • CtW lookup uses placeholder: {ctw_title}
+      • AoF lookup uses placeholder: {aof}
+      • Text output goes below:
+            {ctw_text_elkton}, {ctw_text_lb},
+            {aof_text_elkton}, {aof_text_lb}
+      • UUID output goes below:
+            {ctw_uuid_elkton}, {ctw_uuid_lb},
+            {aof_uuid_elkton}, {aof_uuid_lb}
+    """
+    # read CtW + AoF titles
+    ctw_ref = extract_block(md, "ctw_title")
+    aof_ref = extract_block(md, "aof")
+
+    # "CtW Psalm 145"
+    def normalize_ctw(ref: str | None):
+        if not ref:
+            return None
+        r = ref.strip()
+        # accept “Psalm 145:1–5” but CtW slides usually only include chapter
+        r = re.sub(r"[:].*$", "", r)  # drop verse range
+        return f"CtW {r}".strip()
+
+    ctw_title = normalize_ctw(ctw_ref)
+    aof_title = aof_ref.strip() if aof_ref else None
+
+    for church in ("elkton", "lb"):
+        if church == "elkton":
+            db_path = config.elkton_root / "custom" / "custom.sqlite"
+        else:
+            db_path = config.lb_root / "custom" / "custom.sqlite"
+
+        # CtW slide fetch
+        if ctw_title:
+            try:
+                slide = load_openlp_custom_slide(db_path, title=ctw_title)
+                if slide:
+                    uuid = slide["uuid"]
+                    text = clean_markdown(slide["text"])
+                    md = append_below_placeholder(md, f"ctw_uuid_{church}", str(uuid))
+                    md = append_below_placeholder(md, f"ctw_text_{church}", text)
+                else:
+                    md = append_below_placeholder(
+                        md,
+                        f"ctw_text_{church}",
+                        f"[No CtW slide found for {ctw_title} in {church}]"
+                    )
+            except Exception as e:
+                md = append_below_placeholder(
+                    md,
+                    f"ctw_text_{church}",
+                    f"[Error loading CtW for {ctw_title} in {church}: {e}]"
+                )
+
+        # AoF slide fetch
+        if aof_title:
+            try:
+                slide = load_openlp_custom_slide(db_path, title=aof_title)
+                if slide:
+                    uuid = slide["uuid"]
+                    text = clean_markdown(slide["text"])
+                    md = append_below_placeholder(md, f"aof_uuid_{church}", str(uuid))
+                    md = append_below_placeholder(md, f"aof_text_{church}", text)
+                else:
+                    md = append_below_placeholder(
+                        md,
+                        f"aof_text_{church}",
+                        f"[No AoF slide found for {aof_title} in {church}]"
+                    )
+            except Exception as e:
+                md = append_below_placeholder(
+                    md,
+                    f"aof_text_{church}",
+                    f"[Error loading AoF for {aof_title} in {church}: {e}]"
+                )
+
+    return md
+
+
+# =========================================================
+# MAIN
+# =========================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="Weekly Info Gathering")
     parser.add_argument(
         "--master",
         required=True,
-        help="Master markdown filename (relative to WORSHIP_DIR or absolute path)",
+        help="Master filename (relative to worship_dir) or absolute path."
     )
     parser.add_argument(
         "--no-browser",
         action="store_true",
-        help="Do not open a browser for Offertory/Benediction; scripture only.",
+        help="Skip browser Offertory/Benediction capture."
     )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable debug logging.",
-    )
-
+    parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s",
+        format="%(message)s"
     )
 
-    master_path = Path(args.master)
-    if not master_path.is_absolute():
-        master_path = WORSHIP_DIR / master_path
-
+    master_path = resolve_master_path(args.master)
     if not master_path.exists():
         raise SystemExit(f"Master file not found: {master_path}")
 
-    logging.info("Using master file: %s", master_path)
-
     md = read_text(master_path)
 
-    # 1) Insert scripture blocks from OpenLP Bible databases
-    md = insert_scripture_blocks(md)
+    # Step 1: Offertory/Benediction (browser scraping)
+    md = gather_offertory_and_benediction(md, use_browser=not args.no_browser)
 
-    # 2) Optionally gather Offertory & Benediction text via browser
-    md = gather_offertory_and_benediction_via_browser(md, use_browser=not args.no_browser)
+    # Step 2: Scripture (OpenLP)
+    md = gather_scripture_text(md)
+    
+    # Step 3: CtW and Aof from OpenLP
+    md = gather_custom_slides(md)
 
     write_text(master_path, md)
-    logging.info("Updated master file: %s", master_path)
+    print(f"\n✅ Updated: {master_path}")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nAborted by user.")
+        sys.exit(1)
