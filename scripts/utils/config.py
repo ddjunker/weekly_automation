@@ -39,6 +39,18 @@ class Config:
         self.elkton_bible_db = Path(paths["elkton_bible_db"])
         self.lb_bible_db = Path(paths["lb_bible_db"])
 
+        # ----------------------------------------------------------
+        # NEW FIELD: browser profile directory for Playwright
+        # ----------------------------------------------------------
+        # A persistent browser profile is needed so Playwright retains:
+        # - clipboard permissions
+        # - cookies / sessions (if ever needed)
+        # - consistent behavior between script runs
+        #
+        # Stored in the project root (same as weekly_automation/)
+        # Automatically created by Playwright if it doesn't exist.
+        self.browser_profile = Path(__file__).resolve().parents[2] / "browser_profile"
+
 
 # Instantiate global singleton
 config = Config()

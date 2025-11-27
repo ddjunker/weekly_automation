@@ -3,7 +3,7 @@ from .text_clean import clean_text
 
 def extract_block(md: str, placeholder: str) -> str:
     placeholder = clean_text(placeholder)
-    pattern = rf"\{{{placeholder}\}}(.*?)(?=\n\{{|\Z)"
+    pattern = rf"\{{{placeholder}\}}\s*(.*?)(?=\n\s*\{{|\Z)"
     m = re.search(pattern, md, flags=re.S)
     return m.group(1).strip() if m else ""
 

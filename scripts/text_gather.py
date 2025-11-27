@@ -1,43 +1,26 @@
+#!/usr/bin/env python3
 """
-text_gather.py – Weekly Info Gathering (Final Version, Refactored)
-------------------------------------------------------------------
-Uses flexible source URLs embedded in the Master markdown file.
-Resolves Master file paths through weekly_config.ini (via config module).
-Fetches Scripture from OpenLP Bible databases.
-Captures Offertory/Benediction text through Firefox + clipboard.
-
-Now refactored to use:
-  • scripts.utils.placeholder.append_below_placeholder
-  • scripts.utils.text_clean.clean_markdown
+text_gather.py — Weekly Automation: Scripture + Offertory + CtW + AoF Gatherer
 """
 
 import argparse
 import logging
-import sys
 import re
 from pathlib import Path
 
-# Project utilities
-from scripts.utils import openlp_env
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+
 from scripts.utils.config import config
-from scripts.utils.placeholder import append_below_placeholder
-from scripts.utils.text_clean import clean_markdown
+from scripts.utils.placeholder import append_below_placeholder, extract_block
+from scripts.utils.text_clean import clean_markdown, clean_text
+from scripts.utils.openlp import (
+    get_scripture_text,
+    list_custom_slides,
+    load_custom_slide
+)
 
 
-# =========================================================
-# BROWSER SUPPORT
-# =========================================================
-try:
-    from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
-    import pyperclip
-    HAVE_BROWSER_DEPS = True
-except ImportError:
-    HAVE_BROWSER_DEPS = False
 
-
-# =========================================================
-# CONFIG + MASTER PATH RESOLUTION
-# =========================================================
 
 def resolve_master_path(master_arg: str) -> Path:
     """
@@ -53,7 +36,7 @@ def resolve_master_path(master_arg: str) -> Path:
 
     mp = Path(master_arg)
 
-    # Case 1: absolute path override
+    # Case 1: absolute override
     if mp.is_absolute():
         return mp
 
@@ -65,304 +48,352 @@ def resolve_master_path(master_arg: str) -> Path:
     return worship / master_arg
 
 
-# =========================================================
-# MARKDOWN HELPERS
-# =========================================================
+# ---------------- Clipboard Capture ----------------
 
-def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
-
-
-def write_text(path: Path, text: str) -> None:
-    path.write_text(text, encoding="utf-8")
-
-
-def get_source_url(md: str, key: str) -> str | None:
-    """
-    Read URL immediately following placeholder {key}.
-    Returns None if missing or equal to 'na'.
-    """
-    lines = md.splitlines()
-    for i, line in enumerate(lines):
-        if line.strip() == f"{{{key}}}":
-            if i + 1 < len(lines):
-                candidate = lines[i + 1].strip()
-                if candidate.lower().startswith("http") and candidate.lower() != "na":
-                    return candidate
-    return None
-
-
-# =========================================================
-# BROWSER CLIPBOARD GATHERING
-# =========================================================
-
-def capture_clipboard(browser, label: str, url: str) -> str:
-    """
-    Load URL in a new browser tab, user selects text & copies with Ctrl+C,
-    then press Enter in the terminal. Clipboard text returned.
-    """
-    page = browser.new_page()
-    print(f"\n=== {label} ===\n{url}")
-
+def capture_clipboard(page, label: str, url: str) -> str:
+    print(f"\n=== {label} ===")
+    print(url)
     try:
         page.goto(url, wait_until="domcontentloaded")
-        try:
-            page.wait_for_load_state("networkidle", timeout=15000)
-        except PWTimeout:
-            # Not fatal; we just continue with whatever loaded.
-            pass
-    except Exception as e:
-        print(f"[Browser Error] Unable to open URL: {e}")
-        page.close()
-        return ""
-
-    try:
-        pyperclip.copy("")
     except Exception:
         pass
+    try:
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except PWTimeout:
+        pass
 
-    print("Select text on page, press Ctrl+C, then press Enter here.")
+    print("Select the exact text, press Ctrl+C, then press Enter here.")
     input()
 
-    text = (pyperclip.paste() or "").strip()
-    page.close()
-
-    if text:
-        print(f"Captured {len(text)} characters.")
-    else:
-        print("[Warning] No text captured.")
+    try:
+        text = page.evaluate("navigator.clipboard.readText()")
+    except Exception:
+        text = ""
+    text = (text or "").strip()
+    print(f"Captured {len(text)} characters.")
     return text
 
 
-def gather_offertory_and_benediction(md: str, use_browser: bool) -> str:
+# ---------------- CtW Support ----------------
+
+# def parse_ctw_title(title: str):
+#     title = title.strip()
+#     if " UMH" in title:
+#         base, flag = title.split(" UMH", 1)
+#         return base.strip(), ("UMH" + flag.strip())
+#     return title, None
+
+
+def extract_clean(md: str, key: str) -> str:
+    raw = extract_block(md, key)
+
+    if isinstance(raw, (list, tuple)):
+        parts = raw
+    else:
+        parts = [raw]
+
+    parts = [
+        str(p).strip()
+        for p in parts
+        if p and str(p).strip() and not str(p).strip().startswith("%%")
+    ]
+
+    flat = " ".join(parts)
+    return clean_text(flat)
+
+
+def normalize_reference(ref: str):
     """
-    Reads Offertory and Benediction URLs from the Master markdown
-    and performs browser-based clipboard capture.
+    Input like 'Psalm 122:1-9'
+    Returns: (book='Psalm', chapter='122', verses='1-9' or '')
     """
-    if not use_browser:
-        logging.info("Skipping browser capture (--no-browser).")
-        return md
-
-    if not HAVE_BROWSER_DEPS:
-        logging.error("Missing playwright/pyperclip; skipping browser capture.")
-        return md
-
-    offertory_url    = get_source_url(md, "offertory_source")
-    offertory_alt    = get_source_url(md, "offertory_source_alt")
-    benediction_url  = get_source_url(md, "benediction_source")
-    benediction_alt  = get_source_url(md, "benediction_source_alt")
-
-    with sync_playwright() as p:
-        profile_dir = Path.home() / ".weekly_info_profile"
-        browser = p.firefox.launch_persistent_context(str(profile_dir), headless=False)
-
-        try:
-            if offertory_url:
-                txt = capture_clipboard(browser, "Offertory (Primary)", offertory_url)
-                if txt:
-                    txt = clean_markdown(txt)
-                    md = append_below_placeholder(md, "offertory_source_text", txt)
-
-            if offertory_alt:
-                txt = capture_clipboard(browser, "Offertory (Alternate)", offertory_alt)
-                if txt:
-                    txt = clean_markdown(txt)
-                    md = append_below_placeholder(md, "offertory_source_alt_text", txt)
-
-            if benediction_url:
-                txt = capture_clipboard(browser, "Benediction (Primary)", benediction_url)
-                if txt:
-                    txt = clean_markdown(txt)
-                    md = append_below_placeholder(md, "benediction_text", txt)
-
-            if benediction_alt:
-                txt = capture_clipboard(browser, "Benediction (Alternate)", benediction_alt)
-                if txt:
-                    txt = clean_markdown(txt)
-                    md = append_below_placeholder(md, "benediction_text_alt", txt)
-
-        finally:
-            browser.close()
-
-    return md
+    ref = ref.replace("–", "-").replace("—", "-").strip()
+    m = re.match(r"^([1-3]?\s?[A-Za-z]+)\s+(\d+)(?::([\d\-]+))?$", ref)
+    if not m:
+        return ref, "", ""  # let higher logic handle errors
+    book = m.group(1)
+    chapter = m.group(2)
+    verses = m.group(3) or ""
+    return book, chapter, verses
 
 
-# =========================================================
-# SCRIPTURE GATHERING
-# =========================================================
 
-def extract_scripture_refs(md: str):
-    """
-    Returns list of (placeholder, reference) extracted from markdown.
-    """
-    result = []
-    pattern = re.compile(r"\{(scripture_ref_[^}]+)\}")
-    lines = md.splitlines()
+# def ctw_matches(slide_title: str, ref_title: str) -> bool:
+#     s = slide_title.lower()
+#     r = ref_title.lower()
 
-    for i, line in enumerate(lines):
-        m = pattern.search(line)
-        if m:
-            key = m.group(1)
-            ref_line = ""
-            for j in range(i + 1, len(lines)):
-                if lines[j].strip():
-                    ref_line = lines[j].strip()
-                    break
-            if ref_line:
-                result.append((key, ref_line))
+#     if s == r:
+#         return True
 
-    return result
+#     pat = r"([1-3]?\s*[a-zA-Z]+)\s+(\d+)"
+#     m1 = re.search(pat, s)
+#     m2 = re.search(pat, r)
+#     if m1 and m2 and m1.group(1) == m2.group(1) and m1.group(2) == m2.group(2):
+#         return True
+
+#     return False
 
 
-def gather_scripture_text(md: str) -> str:
-    refs = extract_scripture_refs(md)
-    for key, ref in refs:
-        for church in ["elkton", "lb"]:
-            try:
-                text = openlp_env.get_scripture_text(church, ref)
-            except Exception as e:
-                text = f"[Scripture error: {e}]"
-
-            md = append_below_placeholder(md, f"{key}_{church}", text)
-
-    return md
-
-
-from scripts.utils.openlp_helpers import load_openlp_custom_slide
-from scripts.utils.placeholder import append_below_placeholder, replace_placeholder
-from scripts.utils.text_clean import clean_markdown
-
+# ---------------- CtW + AoF Retrieval ----------------
 
 def gather_custom_slides(md: str) -> str:
-    """
-    Fetch Call to Worship (CtW) and Affirmation of Faith (AoF)
-    from each church's OpenLP custom slide database.
-
-    Requirements:
-      • CtW lookup uses placeholder: {ctw_title}
-      • AoF lookup uses placeholder: {aof}
-      • Text output goes below:
-            {ctw_text_elkton}, {ctw_text_lb},
-            {aof_text_elkton}, {aof_text_lb}
-      • UUID output goes below:
-            {ctw_uuid_elkton}, {ctw_uuid_lb},
-            {aof_uuid_elkton}, {aof_uuid_lb}
-    """
-    # read CtW + AoF titles
-    ctw_ref = extract_block(md, "ctw_title")
-    aof_ref = extract_block(md, "aof")
-
-    # "CtW Psalm 145"
-    def normalize_ctw(ref: str | None):
-        if not ref:
-            return None
-        r = ref.strip()
-        # accept “Psalm 145:1–5” but CtW slides usually only include chapter
-        r = re.sub(r"[:].*$", "", r)  # drop verse range
-        return f"CtW {r}".strip()
-
-    ctw_title = normalize_ctw(ctw_ref)
-    aof_title = aof_ref.strip() if aof_ref else None
+        # --- Extract & clean CtW reference ---
+    ctw_ref = extract_clean(md, "ctw_ref")
+    aof_ref = extract_clean(md, "aof_ref")
 
     for church in ("elkton", "lb"):
-        if church == "elkton":
-            db_path = config.elkton_root / "custom" / "custom.sqlite"
-        else:
-            db_path = config.lb_root / "custom" / "custom.sqlite"
+        db_path = (
+            config.elkton_root / "custom" / "custom.sqlite"
+            if church == "elkton"
+            else config.lb_root / "custom" / "custom.sqlite"
+        )
 
-        # CtW slide fetch
-        if ctw_title:
+        # -------------------------------------------------------
+        # Call to Worship (CtW)
+        # -------------------------------------------------------
+        ctw_ref = extract_clean(md, "ctw_ref")
+
+        if ctw_ref:
             try:
-                slide = load_openlp_custom_slide(db_path, title=ctw_title)
-                if slide:
-                    uuid = slide["uuid"]
-                    text = clean_markdown(slide["text"])
-                    md = append_below_placeholder(md, f"ctw_uuid_{church}", str(uuid))
-                    md = append_below_placeholder(md, f"ctw_text_{church}", text)
+                book, chapter, verses = normalize_reference(ctw_ref)
+                ref_exact = f"{book} {chapter}" + (f":{verses}" if verses else "")
+            except Exception as e:
+                md = append_below_placeholder(md, "ctw_xml_elkton", f"[CtW parse error: {e}]")
+                md = append_below_placeholder(md, "ctw_xml_lb", f"[CtW parse error: {e}]")
+                return md
+
+            ref_exact_lower = f"CtW {ref_exact}".lower()
+            ref_chapter_lower = f"CtW {book} {chapter}".lower()
+
+            for church in ("elkton", "lb"):
+                db_path = (
+                    config.elkton_root / "custom" / "custom.sqlite"
+                    if church == "elkton"
+                    else config.lb_root / "custom" / "custom.sqlite"
+                )
+                all_slides = list_custom_slides(church)
+
+                # --- Primary exact matches ---
+                exact_matches = [
+                    s for s in all_slides
+                    if s["title"].lower().startswith(ref_exact_lower)
+                ]
+
+                if exact_matches:
+                    # Insert a header so the user can see what matched
+                    md = append_below_placeholder(
+                        md,
+                        f"ctw_xml_{church}",
+                        f"[CtW exact match: {ref_exact}]"
+                    )
+
+                    for s in exact_matches:
+                        uuid = s["uuid"]
+                        slide = load_custom_slide(church, uuid)
+                        if slide:
+                            md = append_below_placeholder(md, f"ctw_xml_{church}", slide["text"])  
+                    continue  # ***Do NOT fall back if exact matches exist***
+
+                # --- Fallback: chapter-only (Psalm 122) ---
+                chapter_matches = [
+                    s for s in all_slides
+                    if s["title"].lower().startswith(ref_chapter_lower)
+                ]
+
+                if chapter_matches:
+                    md = append_below_placeholder(
+                        md,
+                        f"ctw_xml_{church}",
+                        f"[CtW fallback: {book} {chapter}]"
+                    )
+                    for s in chapter_matches:
+                        uuid = s["uuid"]
+                        slide = load_custom_slide(church, uuid)
+                        if slide:
+                            md = append_below_placeholder(md, f"ctw_xml_{church}", slide["text"])  
                 else:
                     md = append_below_placeholder(
                         md,
-                        f"ctw_text_{church}",
-                        f"[No CtW slide found for {ctw_title} in {church}]"
+                        f"ctw_xml_{church}",
+                        f"[No CtW match found for {ref_exact}]"
                     )
-            except Exception as e:
-                md = append_below_placeholder(
-                    md,
-                    f"ctw_text_{church}",
-                    f"[Error loading CtW for {ctw_title} in {church}: {e}]"
-                )
 
-        # AoF slide fetch
-        if aof_title:
+
+        # --- Affirmation of Faith (AoF) ---
+        aof_ref = extract_clean(md, "aof_ref")
+
+        if aof_ref:
             try:
-                slide = load_openlp_custom_slide(db_path, title=aof_title)
-                if slide:
-                    uuid = slide["uuid"]
-                    text = clean_markdown(slide["text"])
-                    md = append_below_placeholder(md, f"aof_uuid_{church}", str(uuid))
-                    md = append_below_placeholder(md, f"aof_text_{church}", text)
-                else:
+                a_book, a_chapter, a_verses = normalize_reference(aof_ref)
+                a_ref_exact = f"{a_book} {a_chapter}" + (f":{a_verses}" if a_verses else "")
+            except Exception as e:
+                for church in ("elkton", "lb"):
                     md = append_below_placeholder(
                         md,
-                        f"aof_text_{church}",
-                        f"[No AoF slide found for {aof_title} in {church}]"
+                        f"aof_xml_{church}",
+                        f"[AoF parse error: {e}]"
                     )
-            except Exception as e:
-                md = append_below_placeholder(
-                    md,
-                    f"aof_text_{church}",
-                    f"[Error loading AoF for {aof_title} in {church}: {e}]"
-                )
+                # skip further AoF work if reference is invalid
+                pass
+            else:
+                # Lowercase forms for matching slide titles
+                a_ref_exact_lower = f"AoF {a_ref_exact}".lower()
+                a_ref_ch_lower = f"AoF {a_book} {a_chapter}".lower()
+
+                for church in ("elkton", "lb"):
+                    db_path = (
+                        config.elkton_root / "custom" / "custom.sqlite"
+                        if church == "elkton"
+                        else config.lb_root / "custom" / "custom.sqlite"
+                    )
+                    all_slides = list_custom_slides(church)
+
+                    # --- Primary exact lookup ---
+                    exact_matches = [
+                        s for s in all_slides
+                        if s["title"].lower().startswith(a_ref_exact_lower)
+                    ]
+
+                    if exact_matches:
+                        md = append_below_placeholder(
+                            md,
+                            f"aof_xml_{church}",
+                            f"[AoF exact match: {a_ref_exact}]"
+                        )
+                        for s in exact_matches:
+                            uuid = s["uuid"]
+                            slide = load_custom_slide(church, uuid)
+                            if slide:
+                                md = append_below_placeholder(md, f"aof_xml_{church}", slide["text"])  
+                        continue  # Do NOT fallback if exact matches exist
+
+                    # --- Fallback: Book + Chapter only ---
+                    fallback_matches = [
+                        s for s in all_slides
+                        if s["title"].lower().startswith(a_ref_ch_lower)
+                    ]
+
+                    if fallback_matches:
+                        md = append_below_placeholder(
+                            md,
+                            f"aof_xml_{church}",
+                            f"[AoF fallback: {a_book} {a_chapter}]"
+                        )
+                        for s in fallback_matches:
+                            uuid = s["uuid"]
+                            slide = load_custom_slide(church, uuid)
+                            if slide:
+                                md = append_below_placeholder(md, f"aof_xml_{church}", slide["text"])  
+                    else:
+                        md = append_below_placeholder(
+                            md,
+                            f"aof_xml_{church}",
+                            f"[No AoF match found for {a_ref_exact}]"
+                        )
+
 
     return md
 
 
-# =========================================================
-# MAIN
-# =========================================================
+# ---------------- Scripture Retrieval ----------------
+
+def gather_scripture_text(md: str) -> str:
+    for idx in (1, 2, 3):
+        key = f"scripture_ref_{idx}"
+        ref = extract_block(md, key)
+        if not ref:
+            continue
+
+        for church in ("elkton", "lb"):
+            try:
+                text = get_scripture_text(church, ref)
+                md = append_below_placeholder(md, f"{key}_{church}", text)
+            except Exception as e:
+                md = append_below_placeholder(
+                    md, f"{key}_{church}",
+                    f"[Scripture fetch error for {ref} in {church}: {e}]"
+                )
+    return md
+
+
+# ---------------- Main ----------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Weekly Info Gathering")
-    parser.add_argument(
-        "--master",
-        required=True,
-        help="Master filename (relative to worship_dir) or absolute path."
-    )
-    parser.add_argument(
-        "--no-browser",
-        action="store_true",
-        help="Skip browser Offertory/Benediction capture."
-    )
+    parser = argparse.ArgumentParser(description="Weekly Automation Text Gatherer")
+    parser.add_argument("--master", required=True)
+    parser.add_argument("--open-output", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(message)s"
+        format="%(levelname)s: %(message)s"
     )
 
     master_path = resolve_master_path(args.master)
     if not master_path.exists():
         raise SystemExit(f"Master file not found: {master_path}")
 
-    md = read_text(master_path)
+    md = master_path.read_text(encoding="utf-8")
 
-    # Step 1: Offertory/Benediction (browser scraping)
-    md = gather_offertory_and_benediction(md, use_browser=not args.no_browser)
+    with sync_playwright() as p:
+        context = p.firefox.launch_persistent_context(
+            user_data_dir=str(config.browser_profile),
+            headless=False
+        )
+        page = context.new_page()
 
-    # Step 2: Scripture (OpenLP)
+        # Extract URLs from Markdown
+        off1_url_raw = extract_block(md, "offertory_source")
+        off1_url = extract_clean(md, "offertory_source")
+        off2_url_raw = extract_block(md, "offertory_source_alt")
+        off2_url = extract_clean(md, "offertory_source_alt")
+        ben1_url = extract_clean(md, "benediction_source")
+        ben2_url = extract_clean(md, "benediction_source_alt")
+
+        def maybe_capture(page, label, url):
+            if not url or url.lower() == "na":
+                print(f"\n=== {label} ===\nSkipped (source='{url}')")
+                return ""
+            if not url.lower().startswith("http"):
+                print(f"\n=== {label} ===\nSkipped (invalid URL='{url}')")
+                return ""
+            return capture_clipboard(page, label, url)
+
+        off1 = maybe_capture(page, "Offertory Prayer (Primary)", off1_url)
+        off2 = maybe_capture(page, "Offertory Prayer (Alternate)", off2_url)
+        ben1  = maybe_capture(page, "Commission & Benediction", ben1_url)
+        ben2  = maybe_capture(page, "Commission & Benediction (Alt)", ben2_url)
+
+        context.close()
+
+    # Insert into markdown
+    # Offertory
+    if off1:
+        md = append_below_placeholder(md, "offertory_source_text", off1)
+
+    if off2:
+        md = append_below_placeholder(md, "offertory_source_alt_text", off2)
+
+    # Benediction
+    if ben1:
+        md = append_below_placeholder(md, "benediction_text", ben1)
+
+    if ben2:
+        md = append_below_placeholder(md, "benediction_text_alt", ben2)
+
+
     md = gather_scripture_text(md)
-    
-    # Step 3: CtW and Aof from OpenLP
     md = gather_custom_slides(md)
 
-    write_text(master_path, md)
-    print(f"\n✅ Updated: {master_path}")
+    master_path.write_text(md, encoding="utf-8")
+    print(f"\nUpdated: {master_path}\n")
+
+    if args.open_output:
+        import os, sys
+        if sys.platform.startswith("win"):
+            os.startfile(master_path)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nAborted by user.")
-        sys.exit(1)
+    main()
