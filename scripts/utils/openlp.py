@@ -175,36 +175,36 @@ def load_custom_slide(church: str, uuid: int) -> dict | None:
     }
 
 
-def list_custom_slides(church: str) -> list:
+def list_custom_slides(church: str) -> list[dict]:
     """
     Return a list of dicts:
-        { "title": str, "uuid": str }
+        { "uuid": int, "title": str }
     from the church's custom slide database.
     """
-
     db_path = get_custom_db(church)
-    if not db_path.exists():
-        raise FileNotFoundError(f"Custom slide DB not found: {db_path}")
-
-    conn = sqlite3.connect(db_path)
+    conn = connect_sqlite(db_path)
     cur = conn.cursor()
 
-    cur.execute("SELECT id, title FROM custom_slide ORDER BY title COLLATE NOCASE")
+    cur.execute("""
+        SELECT id, title
+        FROM custom_slide
+        ORDER BY title COLLATE NOCASE
+    """)
     rows = cur.fetchall()
-
     conn.close()
 
-    # Convert tuples → dicts
-    slides = []
-    for row in rows:
-        slide_id, title = row
-
+    slides: list[dict] = []
+    for r in rows:
+        # r is sqlite3.Row because connect_sqlite sets row_factory
+        slide_id = int(r["id"])
+        title = r["title"] or ""
         slides.append({
-            "uuid": str(slide_id),
-            "title": title or "",
+            "uuid": slide_id,              # keep as int for load_custom_slide()
+            "title": clean_text(title),    # normalize once, consistently
         })
 
     return slides
+
 
 
 # ============================================================================

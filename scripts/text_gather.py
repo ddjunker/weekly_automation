@@ -3,6 +3,8 @@
 text_gather.py — Weekly Automation: Scripture + Offertory + CtW + AoF Gatherer
 """
 
+import subprocess
+import psutil
 import argparse
 import logging
 import re
@@ -20,7 +22,25 @@ from scripts.utils.openlp import (
 )
 
 
+# ---------------- this is to avoid the empty clipboard problem encountered with one of the sites -----------------
 
+def check_firefox_running():
+    """Check if any Firefox processes are running."""
+    for proc in psutil.process_iter(['name']):
+        if proc.info['name'] == 'firefox.exe':  # Use 'firefox' on Linux/Mac
+            return True
+    return False
+
+
+def close_firefox_instances():
+    """Close all running Firefox processes."""
+    for proc in psutil.process_iter(['name']):
+        if proc.info['name'] == 'firefox.exe':  # Use 'firefox' on Linux/Mac
+            proc.terminate()  # Gracefully terminate the process
+            proc.wait()  # Wait for the process to terminate
+
+
+# ----- determines where to look ---------
 
 def resolve_master_path(master_arg: str) -> Path:
     """
@@ -66,10 +86,14 @@ def capture_clipboard(page, label: str, url: str) -> str:
     input()
 
     try:
-        text = page.evaluate("navigator.clipboard.readText()")
+        text = page.evaluate("async () => await navigator.clipboard.readText()")
     except Exception:
         text = ""
-    text = (text or "").strip()
+
+    if not isinstance(text, str):
+        text = ""
+
+    text = text.strip()
     print(f"Captured {len(text)} characters.")
     return text
 
@@ -118,181 +142,53 @@ def normalize_reference(ref: str):
 
 
 
-# def ctw_matches(slide_title: str, ref_title: str) -> bool:
-#     s = slide_title.lower()
-#     r = ref_title.lower()
-
-#     if s == r:
-#         return True
-
-#     pat = r"([1-3]?\s*[a-zA-Z]+)\s+(\d+)"
-#     m1 = re.search(pat, s)
-#     m2 = re.search(pat, r)
-#     if m1 and m2 and m1.group(1) == m2.group(1) and m1.group(2) == m2.group(2):
-#         return True
-
-#     return False
-
-
 # ---------------- CtW + AoF Retrieval ----------------
 
-def gather_custom_slides(md: str) -> str:
-        # --- Extract & clean CtW reference ---
-    ctw_ref = extract_clean(md, "ctw_ref")
-    aof_ref = extract_clean(md, "aof_ref")
+def _append_slide_matches(md: str, church: str, placeholder_key: str, prefix: str, label: str) -> str:
+    """
+    Append all custom slides whose titles start with `prefix` (case-insensitive),
+    inserting diagnostics into the markdown.
+    """
+    prefix_clean = clean_text(prefix).lower()
+    slides = list_custom_slides(church)  # [{uuid:int,title:str}, ...]
 
-    for church in ("elkton", "lb"):
-        db_path = (
-            config.elkton_root / "custom" / "custom.sqlite"
-            if church == "elkton"
-            else config.lb_root / "custom" / "custom.sqlite"
-        )
+    matches = [s for s in slides if clean_text(s["title"]).lower().startswith(prefix_clean)]
 
-        # -------------------------------------------------------
-        # Call to Worship (CtW)
-        # -------------------------------------------------------
-        ctw_ref = extract_clean(md, "ctw_ref")
+    if not matches:
+        return append_below_placeholder(md, placeholder_key, f"[No {label} match found for '{prefix}' in {church}]")
 
-        if ctw_ref:
-            try:
-                book, chapter, verses = normalize_reference(ctw_ref)
-                ref_exact = f"{book} {chapter}" + (f":{verses}" if verses else "")
-            except Exception as e:
-                md = append_below_placeholder(md, "ctw_xml_elkton", f"[CtW parse error: {e}]")
-                md = append_below_placeholder(md, "ctw_xml_lb", f"[CtW parse error: {e}]")
-                return md
+    # Diagnostics: if multiple variants exist (differ only by flags), say so
+    if len(matches) > 1:
+        md = append_below_placeholder(md, placeholder_key, f"[{label} multiple variants: {len(matches)}]")
 
-            ref_exact_lower = f"CtW {ref_exact}".lower()
-            ref_chapter_lower = f"CtW {book} {chapter}".lower()
-
-            for church in ("elkton", "lb"):
-                db_path = (
-                    config.elkton_root / "custom" / "custom.sqlite"
-                    if church == "elkton"
-                    else config.lb_root / "custom" / "custom.sqlite"
-                )
-                all_slides = list_custom_slides(church)
-
-                # --- Primary exact matches ---
-                exact_matches = [
-                    s for s in all_slides
-                    if s["title"].lower().startswith(ref_exact_lower)
-                ]
-
-                if exact_matches:
-                    # Insert a header so the user can see what matched
-                    md = append_below_placeholder(
-                        md,
-                        f"ctw_xml_{church}",
-                        f"[CtW exact match: {ref_exact}]"
-                    )
-
-                    for s in exact_matches:
-                        uuid = s["uuid"]
-                        slide = load_custom_slide(church, uuid)
-                        if slide:
-                            md = append_below_placeholder(md, f"ctw_xml_{church}", slide["text"])  
-                    continue  # ***Do NOT fall back if exact matches exist***
-
-                # --- Fallback: chapter-only (Psalm 122) ---
-                chapter_matches = [
-                    s for s in all_slides
-                    if s["title"].lower().startswith(ref_chapter_lower)
-                ]
-
-                if chapter_matches:
-                    md = append_below_placeholder(
-                        md,
-                        f"ctw_xml_{church}",
-                        f"[CtW fallback: {book} {chapter}]"
-                    )
-                    for s in chapter_matches:
-                        uuid = s["uuid"]
-                        slide = load_custom_slide(church, uuid)
-                        if slide:
-                            md = append_below_placeholder(md, f"ctw_xml_{church}", slide["text"])  
-                else:
-                    md = append_below_placeholder(
-                        md,
-                        f"ctw_xml_{church}",
-                        f"[No CtW match found for {ref_exact}]"
-                    )
-
-
-        # --- Affirmation of Faith (AoF) ---
-        aof_ref = extract_clean(md, "aof_ref")
-
-        if aof_ref:
-            try:
-                a_book, a_chapter, a_verses = normalize_reference(aof_ref)
-                a_ref_exact = f"{a_book} {a_chapter}" + (f":{a_verses}" if a_verses else "")
-            except Exception as e:
-                for church in ("elkton", "lb"):
-                    md = append_below_placeholder(
-                        md,
-                        f"aof_xml_{church}",
-                        f"[AoF parse error: {e}]"
-                    )
-                # skip further AoF work if reference is invalid
-                pass
-            else:
-                # Lowercase forms for matching slide titles
-                a_ref_exact_lower = f"AoF {a_ref_exact}".lower()
-                a_ref_ch_lower = f"AoF {a_book} {a_chapter}".lower()
-
-                for church in ("elkton", "lb"):
-                    db_path = (
-                        config.elkton_root / "custom" / "custom.sqlite"
-                        if church == "elkton"
-                        else config.lb_root / "custom" / "custom.sqlite"
-                    )
-                    all_slides = list_custom_slides(church)
-
-                    # --- Primary exact lookup ---
-                    exact_matches = [
-                        s for s in all_slides
-                        if s["title"].lower().startswith(a_ref_exact_lower)
-                    ]
-
-                    if exact_matches:
-                        md = append_below_placeholder(
-                            md,
-                            f"aof_xml_{church}",
-                            f"[AoF exact match: {a_ref_exact}]"
-                        )
-                        for s in exact_matches:
-                            uuid = s["uuid"]
-                            slide = load_custom_slide(church, uuid)
-                            if slide:
-                                md = append_below_placeholder(md, f"aof_xml_{church}", slide["text"])  
-                        continue  # Do NOT fallback if exact matches exist
-
-                    # --- Fallback: Book + Chapter only ---
-                    fallback_matches = [
-                        s for s in all_slides
-                        if s["title"].lower().startswith(a_ref_ch_lower)
-                    ]
-
-                    if fallback_matches:
-                        md = append_below_placeholder(
-                            md,
-                            f"aof_xml_{church}",
-                            f"[AoF fallback: {a_book} {a_chapter}]"
-                        )
-                        for s in fallback_matches:
-                            uuid = s["uuid"]
-                            slide = load_custom_slide(church, uuid)
-                            if slide:
-                                md = append_below_placeholder(md, f"aof_xml_{church}", slide["text"])  
-                    else:
-                        md = append_below_placeholder(
-                            md,
-                            f"aof_xml_{church}",
-                            f"[No AoF match found for {a_ref_exact}]"
-                        )
-
+    for s in matches:
+        slide = load_custom_slide(church, s["uuid"])   # dict {id,title,text}
+        if not slide or not isinstance(slide.get("text"), str) or not slide["text"].strip():
+            md = append_below_placeholder(md, placeholder_key, f"[{label} slide {s['uuid']} had no text]")
+            continue
+        md = append_below_placeholder(md, placeholder_key, slide["text"])
 
     return md
+
+
+def gather_custom_slides(md: str) -> str:
+    # Inputs from markdown
+    ctw_ref = extract_clean(md, "ctw_ref")      # e.g. "Psalm 122:1-9"
+    aof_ref = extract_clean(md, "aof_ref")      # e.g. "39top" (NOT scripture)
+
+    for church in ("elkton", "lb"):
+        # CtW titles are like: "CtW Psalm 122:1-9 [Flag]"
+        if ctw_ref:
+            ctw_prefix = f"CtW {ctw_ref}"
+            md = _append_slide_matches(md, church, f"ctw_xml_{church}", ctw_prefix, "CtW")
+
+        # AoF titles are like: "AoF p39top [Flag]"
+        if aof_ref:
+            aof_prefix = f"AoF p{aof_ref}"
+            md = _append_slide_matches(md, church, f"aof_xml_{church}", aof_prefix, "AoF")
+
+    return md
+
 
 
 # ---------------- Scripture Retrieval ----------------
@@ -330,6 +226,13 @@ def main():
         format="%(levelname)s: %(message)s"
     )
 
+
+
+    if check_firefox_running():
+        print("Closing existing Firefox instances...")
+        close_firefox_instances()
+
+
     master_path = resolve_master_path(args.master)
     if not master_path.exists():
         raise SystemExit(f"Master file not found: {master_path}")
@@ -339,7 +242,13 @@ def main():
     with sync_playwright() as p:
         context = p.firefox.launch_persistent_context(
             user_data_dir=str(config.browser_profile),
-            headless=False
+            headless=False,
+            firefox_user_prefs={
+                "dom.events.asyncClipboard.readText": True,
+                "dom.events.testing.asyncClipboard": True,
+                "permissions.default.clipboard-read": 1,
+                "permissions.default.clipboard-write": 1,
+            }
         )
         page = context.new_page()
 

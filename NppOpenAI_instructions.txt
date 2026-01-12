@@ -1,0 +1,63 @@
+The issue you're experiencing with the "Affirmation of Faith" (AoF) and "Call to Worship" (CtW) routines not executing properly may stem from a few potential areas in your code. Here are some steps to troubleshoot and ensure these routines run correctly:
+
+### 1. Verify Input Data
+Ensure that the Markdown file contains the required placeholders for AoF and CtW references. The script looks for specific keys like `ctw_ref` and `aof_ref`. If these keys are missing or incorrectly formatted in your Markdown file, the routines will not execute as expected.
+
+### 2. Debug Logging
+Add debug logging statements within the `gather_custom_slides` function to track its execution flow and to see what references are being processed. For example, you can log the extracted references:
+
+```python
+def gather_custom_slides(md: str) -> str:
+    # --- Extract & clean CtW reference ---
+    ctw_ref = extract_clean(md, "ctw_ref")
+    aof_ref = extract_clean(md, "aof_ref")
+    
+    logging.debug(f"Extracted CtW reference: {ctw_ref}")
+    logging.debug(f"Extracted AoF reference: {aof_ref}")
+
+    # ... rest of your code ...
+```
+
+### 3. Check for Matches
+Inside the `gather_custom_slides` function, ensure that the logic for finding exact and fallback matches is functioning correctly. If there are no slides in your custom slides database that match the references, the function will not append any content to the Markdown.
+
+### 4. Review Custom Slide Functions
+Check the implementations of `list_custom_slides` and `load_custom_slide`. Ensure that they are correctly returning the expected data structures and that they are querying the database properly. If they return empty lists or `None`, the AoF and CtW routines will not find any matches.
+
+### 5. Error Handling
+Currently, if there are no matches found, the script appends a message indicating that no match was found. Make sure that this part of the code is being reached:
+
+```python
+if not exact_matches:
+    md = append_below_placeholder(
+        md,
+        f"ctw_xml_{church}",
+        f"[No CtW match found for {ref_raw}]"
+    )
+```
+
+If you don't see this message in your output, it indicates that the function is not being called or that the references are not being extracted correctly.
+
+### 6. Ensure Proper Function Calls
+Make sure that `gather_custom_slides` is being called in the main function after the other processing steps, as you have done:
+
+```python
+md = gather_custom_slides(md)
+```
+
+### 7. Test with Known Data
+For testing purposes, you can hard-code some known references in the Markdown file to see if the routines work with expected inputs. This will help you determine if the issue lies with the input data or the logic in your functions.
+
+### Example Markdown Structure
+Ensure your Markdown file has sections like the following:
+
+```markdown
+%% Call to Worship %%
+ctw_ref: Psalm 122:1-9
+
+%% Affirmation of Faith %%
+aof_ref: 39top
+```
+
+### Conclusion
+By following these steps, you should be able to identify where the issue lies in the execution of the AoF and CtW routines. Adding debug logging will provide insights into the flow of data and help pinpoint where things might be going wrong. If you still encounter issues after these checks, consider isolating the functions in a separate script to test their behavior independently.
