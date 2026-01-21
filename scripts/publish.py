@@ -250,6 +250,11 @@ def build_markdown_outputs(
 
     worship_dir = config.worship_dir
 
+    if master_path is None:
+        raise ValueError("master_path must be provided")
+    if templates_dir is None:
+        templates_dir = worship_dir / "templates"
+
     if not master_path.exists():
         raise FileNotFoundError(f"Master.md not found at: {master_path}")
 
@@ -267,6 +272,11 @@ def build_markdown_outputs(
         raise FileNotFoundError(f"Liturgist template not found: {liturgist_template_path}")
 
     date_slug = _get_date_slug(master_md)
+
+    logging.info("Worship dir: %s", worship_dir)
+    logging.info("Master path: %s", master_path)
+    logging.info("Speaker template path: %s", speaker_template_path)
+    logging.info("Communion: %s -> template %s", communion, template_name)
 
     # Render speaker
     speaker_template = read_text(speaker_template_path)

@@ -21,8 +21,8 @@ This document lists the expected subdirectory layout under the OpenLP roots and 
 
 ### `worship_dir` subfolders used by dissemination scripts
 
-- `templates/` — LibreOffice and bulletin templates (yearly or service templates). Keep master templates here so the dissemination script can copy/populate them.
-- `resources/` — static assets used in bulletins (images, logos, attachments). The dissemination script expects these to be available under `worship_dir/resources` when assembling output.
+- `templates/` — speaker and liturgist templates. Keep master templates here so the dissemination script can copy/populate them.
+- `resources/` — static assets used in speaker files. The dissemination script expects these to be available under `worship_dir/resources` when assembling output.
 
 ## Notes for developers
 - Prefer configuring only the OpenLP roots in `scripts/weekly_config.ini`; the scripts will resolve DB locations relative to those roots.

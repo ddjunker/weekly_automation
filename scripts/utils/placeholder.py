@@ -14,7 +14,7 @@ def append_below_placeholder(md: str, placeholder: str, content: str) -> str:
     placeholder = clean_text(placeholder)
     content = clean_text(content)
     pattern = rf"(\{{{placeholder}\}}\s*)"
-    return re.sub(pattern, r"\1" + content + "\n", md, count=1)
+    return re.sub(pattern, r"\g<1>" + content + "\n", md, count=1)
 
 def replace_placeholder(md: str, placeholder: str, content: str) -> str:
     placeholder = clean_text(placeholder)

@@ -209,6 +209,12 @@ def gather_scripture_text(md: str) -> str:
                     md, f"{key}_{church}",
                     f"[Scripture fetch error for {ref} in {church}: {e}]"
                 )
+            # Only for idx=3 and church=elkton, normalize reference
+            if idx == 3 and church == "elkton":
+                book, chapter, verses = normalize_reference(ref)
+                md = append_below_placeholder(md, f"{key}_{church}_book", book)
+                md = append_below_placeholder(md, f"{key}_{church}_chapter", chapter)
+                md = append_below_placeholder(md, f"{key}_{church}_verses", verses)
     return md
 
 

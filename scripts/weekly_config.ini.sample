@@ -1,0 +1,29 @@
+; Sample weekly_config.ini (copy to weekly_config.ini and edit for each machine)
+; Paths may be absolute (Windows) or use environment variables / ~ (Linux/macOS)
+
+[paths]
+# General
+worship_dir = C:\Users\Public\Documents\Area42\Worship
+ccli_dir = C:\Users\pasto\OneDrive - United Parish of Elkton (1)\Music\CCLI
+
+# OpenLP roots (these should point to the top-level OpenLP folders)
+elkton_openlp_root = C:\Users\pasto\OneDrive - United Parish of Elkton (1)\Shared with Everyone\OpenLP
+lb_openlp_root     = C:\Users\pasto\OneDrive - United Parish of Elkton (1)\Shared with Everyone\LBopenLP
+
+; Optional: explicit DB paths (usually not needed; OpenLP discovery prefers root-relative files)
+; elkton_songs_db = C:\path\to\OpenLP\songs\songs.sqlite
+; lb_songs_db     = C:\path\to\LBopenLP\songs\songs.sqlite
+; elkton_bible_db = C:\path\to\OpenLP\bibles\SomeBible.sqlite
+; lb_bible_db     = C:\path\to\LBopenLP\bibles\SomeBible.sqlite
+
+; Playwright browser profile (optional - created under project root if absent)
+; browser_profile = ../browser_profile
+
+; -----------------------------------------------------------------
+; Example Linux overrides - create [paths_linux] on Linux hosts
+; Use $HOME or ~ for portability.
+[paths_linux]
+worship_dir = $HOME/Public/Area42/Worship
+ccli_dir = $HOME/OneDrive/Music/CCLI
+elkton_openlp_root = $HOME/OneDrive/Shared/OpenLP
+lb_openlp_root = $HOME/OneDrive/Shared/LBopenLP
