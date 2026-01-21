@@ -38,9 +38,18 @@ def get_openlp_root(church: str) -> Path:
 def get_songs_db(church: str) -> Path:
     church = church.lower()
     if church == "elkton":
-        return config.elkton_songs_db
+        # Use a path relative to the elkton OpenLP root. Fail if missing.
+        root = get_openlp_root("elkton")
+        candidate = root / "songs" / "songs.sqlite"
+        if not root or not candidate.exists():
+            raise FileNotFoundError(f"Songs DB not found under elkton root: {candidate}")
+        return candidate
     elif church == "lb":
-        return config.lb_songs_db
+        root = get_openlp_root("lb")
+        candidate = root / "songs" / "songs.sqlite"
+        if not root or not candidate.exists():
+            raise FileNotFoundError(f"Songs DB not found under lb root: {candidate}")
+        return candidate
     else:
         raise ValueError(f"Unknown church '{church}'")
 
@@ -48,9 +57,40 @@ def get_songs_db(church: str) -> Path:
 def get_bible_db(church: str) -> Path:
     church = church.lower()
     if church == "elkton":
-        return config.elkton_bible_db
+        # Discover a bible DB under elkton root's bibles/ directory.
+        root = get_openlp_root("elkton")
+        bibles_dir = root / "bibles"
+        if not bibles_dir.exists():
+            raise FileNotFoundError(f"Bibles directory not found under elkton root: {bibles_dir}")
+        candidates = list(bibles_dir.glob("*.sqlite"))
+        if not candidates:
+            raise FileNotFoundError(f"No .sqlite bible files found under: {bibles_dir}")
+        if len(candidates) == 1:
+            return candidates[0]
+        # Prefer likely filenames if multiple exist
+        for name_hint in ("Good News", "GNT", "New Revised", "NRSV"):
+            for c in candidates:
+                if name_hint.lower() in c.name.lower():
+                    return c
+        # If ambiguous, prefer the first deterministically sorted
+        candidates.sort(key=lambda p: p.name)
+        return candidates[0]
     elif church == "lb":
-        return config.lb_bible_db
+        root = get_openlp_root("lb")
+        bibles_dir = root / "bibles"
+        if not bibles_dir.exists():
+            raise FileNotFoundError(f"Bibles directory not found under lb root: {bibles_dir}")
+        candidates = list(bibles_dir.glob("*.sqlite"))
+        if not candidates:
+            raise FileNotFoundError(f"No .sqlite bible files found under: {bibles_dir}")
+        if len(candidates) == 1:
+            return candidates[0]
+        for name_hint in ("New Revised", "NRSV", "Revised"):
+            for c in candidates:
+                if name_hint.lower() in c.name.lower():
+                    return c
+        candidates.sort(key=lambda p: p.name)
+        return candidates[0]
     else:
         raise ValueError(f"Unknown church '{church}'")
 

@@ -6,6 +6,8 @@ Central configuration loader for Weekly Automation scripts.
 from __future__ import annotations
 
 import configparser
+import os
+import platform
 from pathlib import Path
 
 
@@ -24,20 +26,40 @@ class Config:
         self._parser = configparser.ConfigParser()
         self._parser.read(self.config_path, encoding="utf-8")
 
-        paths = self._parser["paths"]
+        # Load the generic [paths] section, then overlay an OS-specific
+        # section if present (e.g. [paths_linux], [paths_windows]).
+        paths: dict = {}
+        if "paths" in self._parser:
+            paths.update(self._parser["paths"])
+
+        sys_name = platform.system().lower()
+        platform_section = f"paths_{sys_name}"
+        if platform_section in self._parser:
+            paths.update(self._parser[platform_section])
+
+        # Helper to expand env vars and ~, returning a Path. Missing keys
+        # yield an empty Path() which is falsy for .exists() checks.
+        def _p(key: str) -> Path:
+            raw = paths.get(key, "")
+            if not raw:
+                return Path("")
+            expanded = os.path.expandvars(raw)
+            expanded = os.path.expanduser(expanded)
+            return Path(expanded)
 
         # Exported values (all converted to Path objects)
-        self.worship_dir = Path(paths["worship_dir"])
-        self.ccli_dir = Path(paths["ccli_dir"])
+        self.worship_dir = _p("worship_dir")
+        self.ccli_dir = _p("ccli_dir")
 
-        self.elkton_root = Path(paths["elkton_openlp_root"])
-        self.lb_root = Path(paths["lb_openlp_root"])
+        self.elkton_root = _p("elkton_openlp_root")
+        self.lb_root = _p("lb_openlp_root")
 
-        self.elkton_songs_db = Path(paths["elkton_songs_db"])
-        self.lb_songs_db = Path(paths["lb_songs_db"])
+        # These may be left blank in favor of root-relative discovery.
+        self.elkton_songs_db = _p("elkton_songs_db")
+        self.lb_songs_db = _p("lb_songs_db")
 
-        self.elkton_bible_db = Path(paths["elkton_bible_db"])
-        self.lb_bible_db = Path(paths["lb_bible_db"])
+        self.elkton_bible_db = _p("elkton_bible_db")
+        self.lb_bible_db = _p("lb_bible_db")
 
         # ----------------------------------------------------------
         # NEW FIELD: browser profile directory for Playwright
