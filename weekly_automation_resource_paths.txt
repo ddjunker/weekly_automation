@@ -5,7 +5,7 @@ C:\Users\
 │  ├─ OneDrive - United Parish of Elkton (1)
 │  │  ├─ Documents
 │  │  │  └─ Bulletins
-│  │  │     └─2025 bulletins						← LibreOffice template files [changes each year]
+│  │  │     └─2026 bulletins						← LibreOffice template files [changes each year]
 │  │  │
 │  │  ├─ Music
 │  │  │  └─ CCLI

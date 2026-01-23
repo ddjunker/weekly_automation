@@ -1,6 +1,170 @@
+
+# Combined function for both markdown and writer outputs
+from __future__ import annotations
+import logging
+import re
+import argparse
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterable, Tuple
+from datetime import datetime
+
+# Add template mappings at the top so they are available to all functions
+PASTOR_TEMPLATE_BY_COMMUNION = {
+    "0": {
+        "elkton_md": "Pastor.md",
+        "lb_md": "PastorLB.md",
+        "elkton_writer": "elk.ott",
+        "lb_writer": "lb.ott",
+    },
+    "1": {
+        "elkton_md": "PastorC1.md",
+        "lb_md": "PastorLBC.md",
+        "elkton_writer": "elkc1.ott",
+        "lb_writer": "lbc.ott",
+    },
+    "2": {
+        "elkton_md": "PastorC2.md",
+        "lb_md": "PastorLBC.md",
+        "elkton_writer": "elkc2.ott",
+        "lb_writer": "lbc.ott",
+    },
+    "3": {
+        "elkton_md": "PastorC3.md",
+        "lb_md": "PastorLBC.md",
+        "elkton_writer": "elkc3.ott",
+        "lb_writer": "lbc.ott",
+    },
+}
+
+DEFAULT_LITURGIST_TEMPLATE = "Liturgist.md"
+
+
+# RenderResult dataclass for output tracking
+@dataclass(frozen=True)
+class RenderResult:
+    output_path: Path
+    warnings: Tuple[str, ...]
+
+
+
+# Combined function for both markdown and writer outputs
+def build_markdown_and_writer_outputs(
+    *,
+    master_path: Path | None = None,
+    templates_dir: Path | None = None,
+    strict: bool = False,
+    verbose: bool = False,
+) -> Tuple[Dict[str, RenderResult], RenderResult, Dict[str, Path]]:
+    """
+    Generate:
+      - Pastor/PastorC* speaker markdown files for both churches
+      - Liturgist markdown file (unchanged)
+      - Writer files for both churches
+
+    Returns (speaker_results, liturgist_result, writer_results)
+    """
+    init_logging(verbose=verbose)
+
+    worship_dir = config.worship_dir
+
+    if master_path is None:
+        raise ValueError("master_path must be provided")
+    if templates_dir is None:
+        templates_dir = worship_dir / "templates"
+
+    if not master_path.exists():
+        raise FileNotFoundError(f"Master.md not found at: {master_path}")
+
+    master_md = read_text(master_path)
+
+    communion = extract_block(master_md, "communion").strip() or "0"
+    templates = PASTOR_TEMPLATE_BY_COMMUNION.get(communion)
+    if not templates:
+        raise ValueError(f"No templates for communion type: {communion}")
+
+    date_slug = _get_date_slug(master_md)
+
+    speaker_results = {}
+    writer_results = {}
+
+    for church in ("elkton", "lb"):
+        md_key = f"{church}_md"
+        writer_key = f"{church}_writer"
+        md_template_name = templates[md_key]
+        writer_template_name = templates[writer_key]
+
+        # Markdown
+        md_template_path = templates_dir / md_template_name
+        if not md_template_path.exists():
+            raise FileNotFoundError(f"Speaker template not found: {md_template_path}")
+        md_template = read_text(md_template_path)
+        md_rendered, md_warnings = render_markdown_template(
+            md_template,
+            master_md,
+            strict=strict,
+        )
+        md_out = worship_dir / f"{Path(md_template_name).stem}--{date_slug}.md"
+        write_text(md_out, md_rendered)
+        speaker_results[church] = RenderResult(md_out, md_warnings)
+
+        # Writer
+        # Use build_librewriter_outputs to get year_dir
+        writer_info = build_librewriter_outputs(master_path=master_path, strict=strict, verbose=verbose)
+        year_dir = writer_info["year_dir"]
+        writer_template_path = year_dir / writer_template_name
+        if not writer_template_path.exists():
+            logging.warning(f"Writer template not found: {writer_template_path}")
+            writer_results[church] = None
+        else:
+            # Replace placeholders in content.xml of the Writer template
+            import zipfile
+            from io import BytesIO
+
+            writer_out = year_dir / f"{Path(writer_template_name).stem}--{date_slug}.odt"
+            with zipfile.ZipFile(writer_template_path, 'r') as zin:
+                with zipfile.ZipFile(writer_out, 'w') as zout:
+                    for item in zin.infolist():
+                        data = zin.read(item.filename)
+                        if item.filename == 'content.xml':
+                            # Replace placeholders in content.xml
+                            text = data.decode('utf-8')
+                            # Use the same placeholder replacement as markdown
+                            # Build lookup for placeholders used in content.xml
+                            placeholders = extract_placeholders_used(text)
+                            lookup = build_master_lookup(master_md, placeholders)
+                            for name in placeholders:
+                                value = lookup.get(name, "")
+                                text = text.replace(f"{{{name}}}", value)
+                            data = text.encode('utf-8')
+                        zout.writestr(item, data)
+            writer_results[church] = writer_out
+
+    # Liturgist (unchanged)
+    liturgist_template_path = templates_dir / DEFAULT_LITURGIST_TEMPLATE
+    if not liturgist_template_path.exists():
+        raise FileNotFoundError(f"Liturgist template not found: {liturgist_template_path}")
+    liturgist_template = read_text(liturgist_template_path)
+    liturgist_rendered, liturgist_warnings = render_markdown_template(
+        liturgist_template,
+        master_md,
+        strict=strict,
+    )
+    liturgist_out = _liturgist_output_path(worship_dir, date_slug)
+    write_text(liturgist_out, liturgist_rendered)
+    liturgist_result = RenderResult(liturgist_out, liturgist_warnings)
+
+    # Log warnings
+    for church, result in speaker_results.items():
+        for w in result.warnings:
+            logging.warning(f"[Speaker {church}] %s", w)
+    for w in liturgist_warnings:
+        logging.warning("[Liturgist] %s", w)
+
+    return speaker_results, liturgist_result, writer_results
 # scripts/publish.py
 
-from __future__ import annotations
+
 
 import logging
 import re
@@ -8,6 +172,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Tuple
+from datetime import datetime
 
 from scripts.utils.config import config
 from scripts.utils.file_io import read_text, write_text, safe_mkdir
@@ -15,30 +180,6 @@ from scripts.utils.logging_utils import init_logging
 from scripts.utils.placeholder import extract_block
 from scripts.utils.text_clean import clean_text, clean_markdown
 
-
-# -----------------------------------------------------------------------------
-# Configuration / naming
-# -----------------------------------------------------------------------------
-
-PASTOR_TEMPLATE_BY_COMMUNION = {
-    "0": "Pastor.md",
-    "1": "PastorC1.md",
-    "2": "PastorC2.md",
-    "3": "PastorC3.md",
-}
-
-DEFAULT_LITURGIST_TEMPLATE = "Liturgist.md"
-
-
-@dataclass(frozen=True)
-class RenderResult:
-    output_path: Path
-    warnings: Tuple[str, ...]
-
-
-# -----------------------------------------------------------------------------
-# Allow flexible input file reading
-# -----------------------------------------------------------------------------
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -306,8 +447,75 @@ def build_markdown_outputs(
 
 
 # -----------------------------------------------------------------------------
+# LibreOffice Writer output builder (stub)
+# -----------------------------------------------------------------------------
+
+def build_librewriter_outputs(*, master_path: Path | None = None, strict: bool = False, verbose: bool = False):
+    """
+    Access the appropriate subdirectory under bulletin_dir based on the year in {cal_date}.
+    This will be expanded to generate Writer files from templates in that subdirectory.
+    """
+    from scripts.utils.config import config
+    from scripts.utils.file_io import read_text
+
+    if master_path is None:
+        raise ValueError("master_path must be provided")
+    if not master_path.exists():
+        raise FileNotFoundError(f"Master.md not found at: {master_path}")
+
+    master_md = read_text(master_path)
+    # Extract the calendar date from the master file
+    from scripts.utils.placeholder import extract_block
+    cal_date = extract_block(master_md, "cal_date").strip()
+    if not cal_date:
+        raise ValueError("{cal_date} not found in master file")
+
+
+    # Try to parse the year from cal_date (supporting multiple formats)
+    year = None
+    date_formats = [
+        "%Y-%m-%d",
+        "%B %d, %Y",  # e.g., January 25, 2026
+        "%b %d, %Y",  # e.g., Jan 25, 2026
+        "%m/%d/%Y",
+        "%d-%b-%Y",
+        "%d %B %Y",
+    ]
+    for fmt in date_formats:
+        try:
+            year = datetime.strptime(cal_date, fmt).year
+            break
+        except Exception:
+            continue
+    if not year:
+        # fallback: try to extract a 4-digit year
+        import re
+        m = re.search(r"(20\\d{2})", cal_date)
+        if m:
+            year = m.group(1)
+        else:
+            raise ValueError(f"Could not determine year from cal_date: {cal_date}")
+
+    bulletin_dir = getattr(config, "bulletin_dir", None)
+    if bulletin_dir is None or not bulletin_dir:
+        raise ValueError("bulletin_dir is not configured in weekly_config.ini")
+
+    year_dir = Path(bulletin_dir) / str(year)
+    if not year_dir.exists():
+        raise FileNotFoundError(f"Bulletin year directory does not exist: {year_dir}")
+
+    # List all files in the year directory (LibreOffice templates and Writer docs)
+    from scripts.utils.file_io import list_files
+    files = list(year_dir.glob("*.ott")) + list(year_dir.glob("*.odt"))
+
+    # For now, just return the directory and file list (stub for future expansion)
+    return {"year_dir": year_dir, "files": files}
+
+
+# -----------------------------------------------------------------------------
 # CLI entry point
 # -----------------------------------------------------------------------------
+
 
 if __name__ == "__main__":
     args = parse_args()
@@ -315,21 +523,27 @@ if __name__ == "__main__":
     worship_dir = config.worship_dir
     master_path = worship_dir / args.master
 
-    speaker, liturgist = build_markdown_outputs(
+    speaker_results, liturgist_result, writer_results = build_markdown_and_writer_outputs(
         master_path=master_path,
         strict=args.strict,
         verbose=args.verbose,
     )
 
-    print(f"Speaker file:   {speaker.output_path.name}")
-    print(f"Liturgist file: {liturgist.output_path.name}")
+    for church, result in speaker_results.items():
+        print(f"Speaker file for {church}: {result.output_path.name}")
+        if result.warnings:
+            print(f"  Warnings for {church}:")
+            for w in result.warnings:
+                print("   -", w)
 
-    if speaker.warnings:
-        print("\nSpeaker warnings:")
-        for w in speaker.warnings:
-            print(" -", w)
-
-    if liturgist.warnings:
+    print(f"Liturgist file: {liturgist_result.output_path.name}")
+    if liturgist_result.warnings:
         print("\nLiturgist warnings:")
-        for w in liturgist.warnings:
+        for w in liturgist_result.warnings:
             print(" -", w)
+
+    for church, writer_path in writer_results.items():
+        if writer_path:
+            print(f"Writer file for {church}: {writer_path.name}")
+        else:
+            print(f"Writer template for {church} not found.")

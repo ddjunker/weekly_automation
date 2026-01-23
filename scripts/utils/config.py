@@ -48,8 +48,10 @@ class Config:
             return Path(expanded)
 
         # Exported values (all converted to Path objects)
+
         self.worship_dir = _p("worship_dir")
         self.ccli_dir = _p("ccli_dir")
+        self.bulletin_dir = _p("bulletin_dir")
 
         self.elkton_root = _p("elkton_openlp_root")
         self.lb_root = _p("lb_openlp_root")
