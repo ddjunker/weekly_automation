@@ -27,7 +27,6 @@ Responsibilities
 from __future__ import annotations
 
 import argparse
-import html
 import logging
 import re
 from dataclasses import dataclass
@@ -36,7 +35,7 @@ from pathlib import Path
 from scripts.utils.config import config
 from scripts.utils.file_io import read_text, write_text
 from scripts.utils.placeholder import append_below_placeholder, extract_block
-from scripts.utils.text_clean import clean_markdown, clean_text
+from scripts.utils.text_clean import clean_markdown, clean_text, xml_to_text
 from scripts.utils.openlp import build_song_index, load_song
 
 
@@ -126,8 +125,7 @@ def hymnal_from_prefix(church: str, prefix: str) -> str | None:
                 return "United Methodist Hymnal"
             case "b":
                 return "The Singing Church"
-            case "k":
-                return "The Faith We Sing"
+
 
     elif church == "lb":
         match prefix:
@@ -197,21 +195,7 @@ def parse_song_id(raw: str | None, title_for_log: str = "") -> ParsedSongID | No
 # XML → plain text
 # =====================================================================
 
-def xml_to_text(xml: str) -> str:
-    """
-    Strip OpenLP song XML down to readable text for print/bulletin use.
-    This is intentionally simple and not OpenLP-schema-aware.
-    """
-    text = re.sub(r"<[^>]+>", "", xml)
-    text = html.unescape(text)
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return clean_markdown(text).strip()
 
-
-# =====================================================================
-# Core OpenLP resolution (using OpenLP DB + index)
-# =====================================================================
 
 def resolve_openlp_song(
     church: str,

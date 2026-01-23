@@ -5,6 +5,7 @@ Merged from text_clean.py and unicode_scrub.py
 
 import re
 import unicodedata
+import html
 from textwrap import dedent
 
 
@@ -139,6 +140,22 @@ def remove_html_entities(text: str) -> str:
     for k, v in ENTITY_MAP.items():
         text = text.replace(k, v)
     return text
+
+
+def xml_to_text(xml: str) -> str:
+    """
+    Strip XML down to readable text for print/bulletin use.
+    Handles CDATA sections and XML tags.
+    """
+    # Replace CDATA wrappers with blank lines
+    xml = re.sub(r'<!\[CDATA\[', '\n\n', xml)
+    xml = re.sub(r'\]\]>', '\n\n', xml)
+    # Then strip XML tags
+    text = re.sub(r"<[^>]+>", "", xml)
+    text = html.unescape(text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return clean_markdown(text).strip()
 
 
 def full_scrub(text: str) -> str:

@@ -273,11 +273,6 @@ def build_markdown_outputs(
 
     date_slug = _get_date_slug(master_md)
 
-    logging.info("Worship dir: %s", worship_dir)
-    logging.info("Master path: %s", master_path)
-    logging.info("Speaker template path: %s", speaker_template_path)
-    logging.info("Communion: %s -> template %s", communion, template_name)
-
     # Render speaker
     speaker_template = read_text(speaker_template_path)
     speaker_rendered, speaker_warnings = render_markdown_template(

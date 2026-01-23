@@ -14,7 +14,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 from scripts.utils.config import config
 from scripts.utils.placeholder import append_below_placeholder, extract_block
-from scripts.utils.text_clean import clean_markdown, clean_text
+from scripts.utils.text_clean import clean_markdown, clean_text, xml_to_text
 from scripts.utils.openlp import (
     get_scripture_text,
     list_custom_slides,
@@ -166,7 +166,10 @@ def _append_slide_matches(md: str, church: str, placeholder_key: str, prefix: st
         if not slide or not isinstance(slide.get("text"), str) or not slide["text"].strip():
             md = append_below_placeholder(md, placeholder_key, f"[{label} slide {s['uuid']} had no text]")
             continue
-        md = append_below_placeholder(md, placeholder_key, slide["text"])
+        cleaned_text = xml_to_text(slide["text"])
+        # Remove OpenLP-specific formatting tags
+        cleaned_text = re.sub(r'\[={3,}\]|\[[\-—]{3,}\]|\{y\}|\{/y\}', '', cleaned_text)
+        md = append_below_placeholder(md, placeholder_key, cleaned_text)
 
     return md
 
