@@ -32,6 +32,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 from scripts.utils.config import config
 from scripts.utils.file_io import read_text, write_text
 from scripts.utils.placeholder import append_below_placeholder, extract_block
@@ -371,6 +373,44 @@ def process_master(md: str, elk_index: dict, lb_index: dict) -> str:
 
 
 # =====================================================================
+# Service info block handling
+# =====================================================================
+
+def extract_serviceinfo_block(md: str) -> tuple[str | None, dict]:
+    """
+    Extract the serviceinfo fenced code block and parse its YAML content.
+    Returns (raw_block, parsed_dict). If not found, returns (None, {}).
+    """
+    match = re.search(r'```serviceinfo\s*([\s\S]+?)```', md)
+    if not match:
+        return None, {}
+    raw = match.group(1)
+    try:
+        data = yaml.safe_load(raw)
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        data = {}
+    return match.group(0), data
+
+
+def update_serviceinfo_block(md: str, updates: dict) -> str:
+    """
+    Update the serviceinfo block in md with the given updates dict.
+    Returns the new markdown text.
+    """
+    old_block, data = extract_serviceinfo_block(md)
+    data.update(updates)
+    new_yaml = yaml.dump(data, sort_keys=False, allow_unicode=True)
+    new_block = f"```serviceinfo\n{new_yaml}```"
+    if old_block:
+        return md.replace(old_block, new_block)
+    else:
+        # Append at end if not found
+        return md.rstrip() + "\n\n" + new_block + "\n"
+
+
+# =====================================================================
 # Main
 # =====================================================================
 
@@ -396,6 +436,26 @@ def main():
 
     md = read_text(master_path)
     updated = process_master(md, elk_index, lb_index)
+
+    # Update serviceinfo block with hymns and special_music
+    hymns = []
+    for church in ("elkton", "lb"):
+        title = extract_block(updated, f"song_opening_title_{church}")
+        if title:
+            hymns.append(str(title).strip())
+    # Optionally, add special_music from a placeholder (customize as needed)
+    special_music = []
+    for church in ("elkton", "lb"):
+        sm_title = extract_block(updated, f"song_middle_title_{church}")
+        if sm_title:
+            special_music.append(str(sm_title).strip())
+    updates = {}
+    if hymns:
+        updates["hymns"] = hymns
+    if special_music:
+        updates["special_music"] = special_music
+    if updates:
+        updated = update_serviceinfo_block(updated, updates)
 
     if updated != md:
         write_text(master_path, updated)

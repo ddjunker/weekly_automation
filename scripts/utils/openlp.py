@@ -257,6 +257,7 @@ def get_scripture_text(church: str, passage: str) -> str:
         • multiple segments (e.g. "John 1:1-3; 2:1-2")
         • ranges (e.g. "1-5")
         • comma-separated sequences (e.g. "1, 3, 5-7")
+        • chapter transitions in comma lists (e.g. "Genesis 2:15-17, 3:1-7")
         • book names with numerals ("1 John", "2 Samuel")
 
     Returns cleaned text lines joined by '\n'.
@@ -293,34 +294,42 @@ def get_scripture_text(church: str, passage: str) -> str:
         if not segment:
             continue
 
-        # Determine chapter
-        if ":" in segment:
-            chap_str, verse_expr = segment.split(":", 1)
-            try:
-                chapter = int(chap_str)
-            except ValueError:
-                chapter = last_chapter
-            last_chapter = chapter
-        else:
-            chapter = last_chapter
-            verse_expr = segment
-
-        # Process comma-separated piece(s)
-        for part in verse_expr.split(","):
+        # Process comma-separated piece(s), each piece may include chapter context.
+        for part in segment.split(","):
             part = part.strip()
             if not part:
                 continue
 
+            if ":" in part:
+                chap_str, verse_expr = part.split(":", 1)
+                try:
+                    chapter = int(chap_str.strip())
+                except ValueError:
+                    chapter = last_chapter
+                last_chapter = chapter
+            else:
+                chapter = last_chapter
+                verse_expr = part
+
+            if chapter is None:
+                conn.close()
+                raise ValueError(f"Unable to determine chapter in scripture reference: {passage}")
+
+            verse_expr = verse_expr.strip()
+            if not verse_expr:
+                continue
+
             # Range a-b
-            if "-" in part:
-                v1, v2 = map(int, part.split("-", 1))
+            if "-" in verse_expr:
+                v1_str, v2_str = verse_expr.split("-", 1)
+                v1, v2 = int(v1_str.strip()), int(v2_str.strip())
                 cur.execute("""
                     SELECT text FROM verse
                     WHERE book_id=? AND chapter=? AND verse BETWEEN ? AND ?
                     ORDER BY verse
                 """, (book_id, chapter, v1, v2))
             else:
-                v = int(part)
+                v = int(verse_expr)
                 cur.execute("""
                     SELECT text FROM verse
                     WHERE book_id=? AND chapter=? AND verse=?

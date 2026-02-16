@@ -52,4 +52,7 @@ C:\Users\
 └─ Public
    └─ Documents
       └─ Area42
-         └─ Worship									← Markdown files (master, indexes, speaker and liturgist templates)
+         └─ Worship									← Markdown files (source and output files)
+            ├─ resource								← songs.sqlite for Elkton
+            └─ templates									← Markdown templates
+

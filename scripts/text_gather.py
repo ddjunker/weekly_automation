@@ -4,13 +4,20 @@ text_gather.py — Weekly Automation: Scripture + Offertory + CtW + AoF Gatherer
 """
 
 import subprocess
+import importlib
 import psutil
 import argparse
 import logging
 import re
+import time
+import platform
 from pathlib import Path
+from typing import Any
+import yaml
 
-from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+playwright_sync_api: Any = importlib.import_module("playwright.sync_api")
+sync_playwright = playwright_sync_api.sync_playwright
+PWTimeout = playwright_sync_api.TimeoutError
 
 from scripts.utils.config import config
 from scripts.utils.placeholder import append_below_placeholder, extract_block
@@ -36,8 +43,11 @@ def close_firefox_instances():
     """Close all running Firefox processes."""
     for proc in psutil.process_iter(['name']):
         if proc.info['name'] == 'firefox.exe':  # Use 'firefox' on Linux/Mac
-            proc.terminate()  # Gracefully terminate the process
-            proc.wait()  # Wait for the process to terminate
+            try:
+                proc.terminate()  # Gracefully terminate the process
+                proc.wait(timeout=5)  # Wait for the process to terminate
+            except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.TimeoutExpired) as e:
+                logging.warning("Could not terminate Firefox process pid=%s: %s", proc.pid, e)
 
 
 # ----- determines where to look ---------
@@ -70,6 +80,35 @@ def resolve_master_path(master_arg: str) -> Path:
 
 # ---------------- Clipboard Capture ----------------
 
+def _read_system_clipboard() -> str:
+    """Read text from the OS clipboard (preferred over browser clipboard API)."""
+    system = platform.system().lower()
+
+    try:
+        if system == "windows":
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return (result.stdout or "").strip()
+
+        if system == "darwin":
+            result = subprocess.run(["pbpaste"], capture_output=True, text=True, check=False)
+            return (result.stdout or "").strip()
+
+        # Linux fallback (xclip)
+        result = subprocess.run(
+            ["xclip", "-selection", "clipboard", "-o"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return (result.stdout or "").strip()
+    except Exception:
+        return ""
+
 def capture_clipboard(page, label: str, url: str) -> str:
     print(f"\n=== {label} ===")
     print(url)
@@ -85,10 +124,21 @@ def capture_clipboard(page, label: str, url: str) -> str:
     print("Select the exact text, press Ctrl+C, then press Enter here.")
     input()
 
-    try:
-        text = page.evaluate("async () => await navigator.clipboard.readText()")
-    except Exception:
-        text = ""
+    text = ""
+
+    # Prefer OS clipboard reads (more reliable than browser clipboard context).
+    for _ in range(8):
+        text = _read_system_clipboard()
+        if text:
+            break
+        time.sleep(0.2)
+
+    # Fallback: browser clipboard API
+    if not text:
+        try:
+            text = page.evaluate("async () => await navigator.clipboard.readText()")
+        except Exception:
+            text = ""
 
     if not isinstance(text, str):
         text = ""
@@ -221,6 +271,42 @@ def gather_scripture_text(md: str) -> str:
     return md
 
 
+# ---------------- Service Info Block ----------------
+
+def extract_serviceinfo_block(md: str) -> tuple[str | None, dict]:
+    """
+    Extract the serviceinfo fenced code block and parse its YAML content.
+    Returns (raw_block, parsed_dict). If not found, returns (None, {}).
+    """
+    match = re.search(r'```serviceinfo\s*([\s\S]+?)```', md)
+    if not match:
+        return None, {}
+    raw = match.group(1)
+    try:
+        data = yaml.safe_load(raw)
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        data = {}
+    return match.group(0), data
+
+
+def update_serviceinfo_block(md: str, updates: dict) -> str:
+    """
+    Update the serviceinfo block in md with the given updates dict.
+    Returns the new markdown text.
+    """
+    old_block, data = extract_serviceinfo_block(md)
+    data.update(updates)
+    new_yaml = yaml.dump(data, sort_keys=False, allow_unicode=True)
+    new_block = f"```serviceinfo\n{new_yaml}```"
+    if old_block:
+        return md.replace(old_block, new_block)
+    else:
+        # Append at end if not found
+        return md.rstrip() + "\n\n" + new_block + "\n"
+
+
 # ---------------- Main ----------------
 
 def main():
@@ -289,24 +375,33 @@ def main():
     # Offertory
     if off1:
         md = append_below_placeholder(md, "offertory_source_text", off1)
-
     if off2:
         md = append_below_placeholder(md, "offertory_source_alt_text", off2)
-
     # Benediction
     if ben1:
         md = append_below_placeholder(md, "benediction_text", ben1)
-
     if ben2:
         md = append_below_placeholder(md, "benediction_text_alt", ben2)
-
-
     md = gather_scripture_text(md)
     md = gather_custom_slides(md)
 
+    # Update serviceinfo block with ctw and scriptures
+    ctw_val = extract_clean(md, "ctw_ref")
+    scriptures = []
+    for idx in (1, 2, 3):
+        ref = extract_clean(md, f"scripture_ref_{idx}")
+        if ref:
+            scriptures.append(ref)
+    updates = {}
+    if ctw_val:
+        updates["ctw"] = ctw_val
+    if scriptures:
+        updates["scriptures"] = scriptures
+    if updates:
+        md = update_serviceinfo_block(md, updates)
+
     master_path.write_text(md, encoding="utf-8")
     print(f"\nUpdated: {master_path}\n")
-
     if args.open_output:
         import os, sys
         if sys.platform.startswith("win"):

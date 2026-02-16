@@ -1,4 +1,3 @@
-
 # Combined function for both markdown and writer outputs
 from __future__ import annotations
 import logging
@@ -8,6 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Tuple
 from datetime import datetime
+import json
+import zipfile
+import tempfile
+from copy import deepcopy
+from xml.etree import ElementTree as ET
 
 # Add template mappings at the top so they are available to all functions
 PASTOR_TEMPLATE_BY_COMMUNION = {
@@ -16,24 +20,32 @@ PASTOR_TEMPLATE_BY_COMMUNION = {
         "lb_md": "PastorLB.md",
         "elkton_writer": "elk.ott",
         "lb_writer": "lb.ott",
+        "elkton_openlp": "template_sunday.osz",
+        "lb_openlp": "template_lb.osz",
     },
     "1": {
         "elkton_md": "PastorC1.md",
         "lb_md": "PastorLBC.md",
         "elkton_writer": "elkc1.ott",
         "lb_writer": "lbc.ott",
+        "elkton_openlp": "template_communion1.osz",
+        "lb_openlp": "template_lbcommunion.osz",
     },
     "2": {
         "elkton_md": "PastorC2.md",
         "lb_md": "PastorLBC.md",
         "elkton_writer": "elkc2.ott",
         "lb_writer": "lbc.ott",
+        "elkton_openlp": "template_communion2.osz",
+        "lb_openlp": "template_lbcommunion.osz",
     },
     "3": {
         "elkton_md": "PastorC3.md",
         "lb_md": "PastorLBC.md",
         "elkton_writer": "elkc3.ott",
         "lb_writer": "lbc.ott",
+        "elkton_openlp": "template_communion3.osz",
+        "lb_openlp": "template_lbcommunion.osz",
     },
 }
 
@@ -45,6 +57,85 @@ DEFAULT_LITURGIST_TEMPLATE = "Liturgist.md"
 class RenderResult:
     output_path: Path
     warnings: Tuple[str, ...]
+
+
+# -----------------------------------------------------------------------------
+# OpenLP Template Copier
+# -----------------------------------------------------------------------------
+
+def copy_openlp_templates_for_each_church(
+    *,
+    master_path: Path | None = None,
+    strict: bool = False,
+    verbose: bool = False,
+) -> Dict[str, Path]:
+    """
+    For each church, copy the OpenLP template file to a new file in the source directory
+    with a date-based name, using config and file I/O utilities.
+    Returns a dict mapping church name to the new file path.
+    """
+    from scripts.utils.config import config
+    from scripts.utils.file_io import safe_mkdir
+    from scripts.utils.file_io import read_text, write_text
+    from scripts.utils.placeholder import extract_block
+
+    init_logging(verbose=verbose)
+
+    worship_dir = config.worship_dir
+
+    if master_path is None:
+        raise ValueError("master_path must be provided")
+    if not master_path.exists():
+        raise FileNotFoundError(f"Master.md not found at: {master_path}")
+
+    master_md = read_text(master_path)
+    communion = extract_block(master_md, "communion").strip() or "0"
+    templates = PASTOR_TEMPLATE_BY_COMMUNION.get(communion)
+    if not templates:
+        raise ValueError(f"No templates for communion type: {communion}")
+
+    date_slug = _get_date_slug(master_md)
+
+    # Map church to OpenLP root and template key
+    church_info = {
+        "elkton": {
+            "root": getattr(config, "elkton_root", None),
+            "template_key": "elkton_openlp",
+        },
+        "lb": {
+            "root": getattr(config, "lb_root", None),
+            "template_key": "lb_openlp",
+        },
+    }
+
+    output_paths = {}
+
+    for church, info in church_info.items():
+        openlp_root = info["root"]
+        template_key = info["template_key"]
+        template_name = templates.get(template_key)
+        if not openlp_root or not openlp_root.exists():
+            logging.warning(f"OpenLP root for {church} not found: {openlp_root}")
+            continue
+        if not template_name:
+            logging.warning(f"No OpenLP template defined for {church} (communion {communion})")
+            continue
+        # OpenLP .osz files are in 'OpenLP Services' subdir
+        service_dir = openlp_root / "OpenLP Services"
+        src_path = service_dir / template_name
+        if not src_path.exists():
+            logging.warning(f"OpenLP template not found for {church}: {src_path}")
+            continue
+        # Output to the same subdirectory with 'Service--{date_slug}.osz' as the name
+        out_name = f"Service--{date_slug}.osz"
+        out_path = service_dir / out_name
+        # Copy file (binary)
+        with src_path.open("rb") as fsrc, out_path.open("wb") as fdst:
+            fdst.write(fsrc.read())
+        output_paths[church] = out_path
+        logging.info(f"Copied OpenLP template for {church} to {out_path}")
+
+    return output_paths
 
 
 
@@ -402,7 +493,8 @@ def build_markdown_outputs(
     master_md = read_text(master_path)
 
     communion = extract_block(master_md, "communion").strip() or "0"
-    template_name = PASTOR_TEMPLATE_BY_COMMUNION.get(communion, "Pastor.md")
+    templates = PASTOR_TEMPLATE_BY_COMMUNION.get(communion)
+    template_name = (templates or {}).get("elkton_md", "Pastor.md")
 
     speaker_template_path = templates_dir / template_name
     liturgist_template_path = templates_dir / DEFAULT_LITURGIST_TEMPLATE
@@ -547,3 +639,12 @@ if __name__ == "__main__":
             print(f"Writer file for {church}: {writer_path.name}")
         else:
             print(f"Writer template for {church} not found.")
+
+    # Call OpenLP template copier and print results
+    openlp_results = copy_openlp_templates_for_each_church(
+        master_path=master_path,
+        strict=args.strict,
+        verbose=args.verbose,
+    )
+    for church, out_path in openlp_results.items():
+        print(f"OpenLP file for {church}: {out_path.name}")
