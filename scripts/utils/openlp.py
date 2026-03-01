@@ -21,6 +21,18 @@ from scripts.utils.config import config
 from scripts.utils.text_clean import clean_text, full_scrub
 
 
+def sanitize_scripture_reference_for_openlp(reference: str) -> str:
+        """
+        Normalize scripture refs for OpenLP DB parsing.
+
+        Strips verse-part letters immediately following numerals, e.g.
+            - Genesis 12:1-4a -> Genesis 12:1-4
+            - John 3:16b,17 -> John 3:16,17
+        """
+        cleaned = reference.replace("–", "-").replace("—", "-").strip()
+        return re.sub(r"(?<=\d)[A-Za-z]+(?=(?:\s|$|[-,;]))", "", cleaned)
+
+
 # ============================================================================
 #  PATH HELPERS
 # ============================================================================
@@ -267,8 +279,8 @@ def get_scripture_text(church: str, passage: str) -> str:
     conn = connect_sqlite(db_path)
     cur = conn.cursor()
 
-    # Normalize dash types
-    passage = passage.replace("–", "-").replace("—", "-").strip()
+    # Normalize reference for OpenLP/DB parsing
+    passage = sanitize_scripture_reference_for_openlp(passage)
 
     # Break out book vs rest
     m = re.match(r"^([1-3]?\s?[A-Za-z ]+)\s+(.+)$", passage)

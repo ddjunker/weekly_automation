@@ -182,7 +182,7 @@ def normalize_reference(ref: str):
     Returns: (book='Psalm', chapter='122', verses='1-9' or '')
     """
     ref = ref.replace("–", "-").replace("—", "-").strip()
-    m = re.match(r"^([1-3]?\s?[A-Za-z]+)\s+(\d+)(?::([\d\-]+))?$", ref)
+    m = re.match(r"^([1-3]?\s?[A-Za-z]+)\s+(\d+)(?::([\dA-Za-z\-,\s]+))?$", ref)
     if not m:
         return ref, "", ""  # let higher logic handle errors
     book = m.group(1)

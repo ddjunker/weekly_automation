@@ -1,0 +1,58 @@
+C:\Users\
+│
+├─ pasto
+│  │
+│  ├─ OneDrive - United Parish of Elkton (1)
+│  │  ├─ Documents
+│  │  │  └─ Bulletins
+│  │  │     └─2026 bulletins						← LibreOffice template files [changes each year]
+│  │  │
+│  │  ├─ Music
+│  │  │  └─ CCLI
+│  │  │     └─ [subdirectories based on title]
+│  │  │
+│  │  └─ Shared with Everyone
+│  │     ├─ LBopenLP
+│  │     │  ├─ bibles								← New Revised Standard Version.sqlite
+│  │     │  ├─ custom								← custom.sqlite for LB
+│  │     │  ├─ exported_slides
+│  │     │  ├─ OpenLP Services						← OpenLP .osz files for LB
+│  │     │  ├─ songs								← songs.sqlite for LB
+│  │     │  └─ themes
+│  │     │     ├─ Advent-Christmas
+│  │     │     ├─ Autumn
+│  │     │     ├─ Black
+│  │     │     ├─ Default
+│  │     │     ├─ Spring
+│  │     │     ├─ Summer
+│  │     │     ├─ Transparent
+│  │     │     └─ Winter
+│  │     │
+│  │     ├─ OpenLP
+│  │     │  ├─ bibles								← Good News Translation.sqlite
+│  │     │  ├─ custom								← custom.sqlite for Elkton
+│  │     │  ├─ exported_slides
+│  │     │  ├─ OpenLP Services						← OpenLP .osz files for Elkton
+│  │     │  ├─ songs								← songs.sqlite for Elkton
+│  │     │  └─ themes
+│  │     │     ├─ Advent-Christmas
+│  │     │     ├─ Autumn
+│  │     │     ├─ Spring
+│  │     │     ├─ Summer
+│  │     │     ├─ Transparent
+│  │     │     └─ Winter
+│  │     │
+│  │     └─ Song exports							← this will be used in a future stage
+│  │
+│  └─ weekly_automation
+│     ├─ docs										← documentation, readme, and version notes
+│     └─ scripts									← primary code location
+│        └─ utils									← helper modules
+│
+└─ Public
+   └─ Documents
+      └─ Area42
+         └─ Worship									← Markdown files (source and output files)
+            ├─ resource								← songs.sqlite for Elkton
+            └─ templates									← Markdown templates
+
