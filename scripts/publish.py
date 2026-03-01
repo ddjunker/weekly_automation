@@ -214,6 +214,90 @@ def _replace_custom_item_reference(service_data: list, marker_title: str, refere
     return False
 
 
+def _remove_service_items_by_marker(service_data: list, plugin: str, marker_title: str) -> int:
+    """Remove all service items matching plugin + header.title (case-insensitive). Returns count removed."""
+    plugin = (plugin or "").strip().lower()
+    marker = (marker_title or "").strip().lower()
+    if not plugin or not marker:
+        return 0
+
+    kept = []
+    removed = 0
+    for item in service_data:
+        svc = item.get("serviceitem") if isinstance(item, dict) else None
+        header = svc.get("header") if isinstance(svc, dict) else None
+        if isinstance(header, dict):
+            item_plugin = str(header.get("plugin", "")).strip().lower()
+            item_title = str(header.get("title", "")).strip().lower()
+            if item_plugin == plugin and item_title == marker:
+                removed += 1
+                continue
+        kept.append(item)
+
+    service_data[:] = kept
+    return removed
+
+
+def _replace_song_item_by_marker(service_data: list, marker_title: str, new_title: str, lyrics_text: str) -> bool:
+    """
+    Replace one Songs-plugin service item (matched by header.title) with new song text.
+    We update the projected slide data and basic header title/footer.
+    """
+    marker = (marker_title or "").strip().lower()
+    if not marker:
+        return False
+
+    # Split into slide-ish chunks on blank lines.
+    normalized = (lyrics_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    parts = [p.strip() for p in re.split(r"\n\s*\n+", normalized) if p.strip()]
+    if not parts:
+        parts = [normalized] if normalized else []
+
+    slides = []
+    for idx, chunk in enumerate(parts, start=1):
+        slides.append({
+            "title": (chunk[:30] or new_title[:30] or "Song")[:30],
+            "raw_slide": chunk,
+            "verseTag": f"V{idx}",
+        })
+
+    for item in service_data:
+        svc = item.get("serviceitem")
+        if not isinstance(svc, dict):
+            continue
+
+        header = svc.get("header")
+        if not isinstance(header, dict):
+            continue
+
+        if str(header.get("plugin", "")).strip().lower() != "songs":
+            continue
+
+        title = str(header.get("title", "")).strip().lower()
+        if title != marker:
+            continue
+
+        header["title"] = new_title
+        footer = header.get("footer")
+        if isinstance(footer, list) and footer:
+            footer[0] = new_title
+        elif isinstance(footer, list):
+            header["footer"] = [new_title]
+        else:
+            header["footer"] = [new_title]
+
+        hdata = header.get("data")
+        if isinstance(hdata, dict):
+            hdata["title"] = new_title
+        else:
+            header["data"] = {"title": new_title}
+
+        svc["data"] = slides
+        return True
+
+    return False
+
+
 def _fetch_scripture_verses(church: str, passage: str) -> list[tuple[int, int, str]]:
     """Fetch scripture verses as (chapter, verse, text) for a church Bible DB."""
     from scripts.utils.openlp import get_bible_db, connect_sqlite
@@ -383,6 +467,14 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
     scripture_ref_2 = extract_block(master_md, "scripture_ref_2").strip()
     scripture_ref_3 = extract_block(master_md, "scripture_ref_3").strip()
 
+    # Songs (OpenLP markers live in the service templates)
+    song_opening_title = extract_block(master_md, f"song_opening_title_{church}").strip()
+    song_opening_id = extract_block(master_md, f"song_opening_id_{church}").strip()
+    song_middle_title = extract_block(master_md, f"song_middle_title_{church}").strip()
+    song_middle_id = extract_block(master_md, f"song_middle_id_{church}").strip()
+    song_closing_title = extract_block(master_md, f"song_closing_title_{church}").strip()
+    song_closing_id = extract_block(master_md, f"song_closing_id_{church}").strip()
+
     service_data, payloads, infos = _load_service_data_from_osz(osz_path)
     changed = False
 
@@ -449,8 +541,155 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
             else:
                 logging.warning("Scripture marker slide %s not found in %s service template", marker, church)
 
+    # Song updates (marker-based)
+    try:
+        if _inject_songs_into_openlp_service_data(
+            service_data,
+            church,
+            opening_title=song_opening_title,
+            opening_id=song_opening_id,
+            middle_title=song_middle_title,
+            middle_id=song_middle_id,
+            closing_title=song_closing_title,
+            closing_id=song_closing_id,
+        ):
+            changed = True
+    except Exception as e:
+        logging.warning("Could not inject songs into %s (%s): %s", osz_path, church, e)
+
     if changed:
         _write_service_data_to_osz(osz_path, service_data, payloads, infos)
+
+
+def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
+                                          opening_title: str, opening_id: str,
+                                          middle_title: str, middle_id: str,
+                                          closing_title: str, closing_id: str) -> bool:
+    """Return True if any song items were updated/removed using ID-driven slot rules."""
+    from scripts.utils.text_clean import xml_to_text
+    from scripts.utils.openlp import build_song_index, load_song
+    from scripts.music_gather import hymnal_from_prefix
+
+    changed = False
+    church_key = (church or "").strip().lower()
+
+    def warn_song_missing(slot_marker: str, message: str) -> None:
+        msg = f"[OpenLP song missing] {church_key}:{slot_marker} - {message}"
+        print(msg)
+
+    def normalize_song_id(raw_id: str) -> str:
+        if raw_id is None:
+            return ""
+        base = str(raw_id).split("%%", 1)[0]
+        return base.strip()
+
+    def parse_hymnal_id(raw_id: str) -> tuple[str, str] | None:
+        """Valid hymnal IDs: b/r/k immediately followed by 1-4 numerals."""
+        m = re.match(r"^([brkBRK])(\d{1,4})$", raw_id)
+        if not m:
+            return None
+        return m.group(1).lower(), m.group(2)
+
+    def intro_prefix_for(title: str, prefix: str | None, entry: str | None) -> str | None:
+        """
+        Determine custom-slide prefix for intro holder replacement.
+        - video: P901 <title>
+        - k:     F####
+        - r:     U###
+        - b:     H### (lb) / S### (elkton)
+        """
+        if prefix is None or entry is None:
+            clean_title = (title or "").strip()
+            return f"P901 {clean_title}" if clean_title else None
+
+        if prefix == "k":
+            return f"F{entry.zfill(4)}"
+        if prefix == "r":
+            return f"U{entry.zfill(3)}"
+        if prefix == "b":
+            head = "H" if church_key == "lb" else "S"
+            return f"{head}{entry.zfill(3)}"
+        return None
+
+    def apply_intro_from_custom_slide(holder_marker: str, title: str, prefix: str | None, entry: str | None) -> bool:
+        intro_prefix = intro_prefix_for(title, prefix, entry)
+        if not intro_prefix:
+            return False
+        slide = _get_slide_text_for_prefix(church_key, intro_prefix)
+        if not slide:
+            logging.warning("No intro custom slide matched for %s using prefix %r", holder_marker, intro_prefix)
+            return False
+        slide_title, slide_text = slide
+        return _replace_custom_item_text(service_data, holder_marker, slide_title, slide_text)
+
+    song_index = None
+
+    def try_replace_song(song_marker: str, title: str, prefix: str, entry: str) -> bool:
+        nonlocal song_index
+        hymnal = hymnal_from_prefix(church_key, prefix)
+        if not hymnal:
+            warn_song_missing(song_marker, f"unknown hymnal prefix {prefix!r}")
+            return False
+
+        if song_index is None:
+            song_index = build_song_index(church_key)
+
+        uuid = song_index.get((hymnal, str(entry)))
+        if not uuid:
+            warn_song_missing(song_marker, f"not found in {hymnal} for id {prefix}{entry}")
+            return False
+
+        song = load_song(church_key, int(uuid))
+        if not song:
+            warn_song_missing(song_marker, f"UUID {uuid} not found")
+            return False
+
+        lyrics_xml = str(song.get("lyrics") or "").strip()
+        if not lyrics_xml:
+            warn_song_missing(song_marker, f"UUID {uuid} has no lyrics")
+            return False
+
+        lyrics_text = xml_to_text(lyrics_xml)
+        new_title = str(song.get("title") or title or f"{hymnal} {entry}").strip()
+        return _replace_song_item_by_marker(service_data, song_marker, new_title, str(lyrics_text).strip())
+
+    slots = (
+        ("opening", opening_title, opening_id),
+        ("middle", middle_title, middle_id),
+        ("closing", closing_title, closing_id),
+    )
+
+    for slot_name, slot_title, slot_id_raw in slots:
+        holder_marker = f"song_{slot_name}_holder"
+        song_marker = f"song_{slot_name}"
+        slot_id = normalize_song_id(slot_id_raw)
+
+        # tbd means remove both intro + song placeholders for this slot
+        if slot_id.lower() == "tbd":
+            removed_custom = _remove_service_items_by_marker(service_data, "custom", holder_marker)
+            removed_song = _remove_service_items_by_marker(service_data, "songs", song_marker)
+            if removed_custom or removed_song:
+                changed = True
+            continue
+
+        parsed = parse_hymnal_id(slot_id)
+        if parsed is None:
+            # Video/other non-hymnal ID: pick intro custom slide by P901 <title>, leave song placeholder unchanged.
+            if apply_intro_from_custom_slide(holder_marker, slot_title, None, None):
+                changed = True
+            continue
+
+        prefix, entry = parsed
+
+        # For hymnal IDs, intro slide selection is based on prefix+number convention.
+        if apply_intro_from_custom_slide(holder_marker, slot_title, prefix, entry):
+            changed = True
+
+        # Replace actual song item when resolvable; if not found, leave placeholder item unchanged.
+        if try_replace_song(song_marker, slot_title, prefix, entry):
+            changed = True
+
+    return changed
 
 
 def copy_openlp_templates_for_each_church(
