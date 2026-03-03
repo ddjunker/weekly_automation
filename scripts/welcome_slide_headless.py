@@ -170,6 +170,28 @@ def _resolve_template_path(template_arg: str, projection_dir: Path) -> Path:
     )
 
 
+def _resolve_template_paths(template_arg: str, projection_dir: Path) -> list[Path]:
+    """
+    Resolve one or more template paths.
+    - If template_arg is provided, returns a single-item list.
+    - If omitted, returns all known church welcome templates that exist.
+    """
+    template_arg = (template_arg or "").strip()
+    if template_arg:
+        return [_resolve_template_path(template_arg, projection_dir)]
+
+    candidates = (
+        projection_dir / "Worship Welcome.xcf",
+        projection_dir / "Worship Welcome LB.xcf",
+    )
+    found = [p for p in candidates if p.exists()]
+    if found:
+        return found
+
+    # Fallback to legacy/default single-template discovery.
+    return [_resolve_template_path("", projection_dir)]
+
+
 def _resolve_master_path(master_arg: str) -> Path:
     """
     Resolve master path similarly to text_gather.py:
@@ -185,12 +207,6 @@ def _resolve_master_path(master_arg: str) -> Path:
         raise FileNotFoundError(f"Worship directory not found: {worship}")
 
     return (worship / candidate).resolve()
-
-
-def _build_date_slug(cal_date: str) -> str:
-    slug = re.sub(r"[^\w\-]+", "-", cal_date.strip())
-    slug = re.sub(r"-{2,}", "-", slug).strip("-")
-    return slug.lower() or "unknown-date"
 
 
 def _load_welcome_fields(master_path: Path) -> tuple[str, str]:
@@ -390,7 +406,7 @@ def main(argv=None):
     parser.add_argument(
         "--output",
         default="",
-        help="Output .png filename or absolute path (default: welcome--<cal_date>.png in projection_pics_dir)",
+        help="Output .png filename or absolute path (single-template mode only)",
     )
     parser.add_argument("--layer-date", default="cal_date", help="Text layer name for date")
     parser.add_argument("--layer-church", default="cal_church", help="Text layer name for church")
@@ -412,26 +428,34 @@ def main(argv=None):
     logging.debug("Loaded cal_date=%r", cal_date_text)
     logging.debug("Loaded cal_church=%r", cal_church_text)
 
-    template_path = _resolve_template_path(args.template, projection_dir)
-    if not template_path.exists():
-        raise FileNotFoundError(f"Welcome slide template not found: {template_path}")
+    template_paths = _resolve_template_paths(args.template, projection_dir)
 
-    if args.output:
-        output_path = _resolve_path(args.output, projection_dir)
-    else:
-        output_path = projection_dir / f"welcome--{_build_date_slug(cal_date_text)}.png"
+    if args.output and len(template_paths) > 1:
+        raise ValueError(
+            "--output can only be used when rendering a single template. "
+            "Use --template to target one file, or omit --output for multi-template mode."
+        )
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    for template_path in template_paths:
+        if not template_path.exists():
+            raise FileNotFoundError(f"Welcome slide template not found: {template_path}")
 
-    update_welcome_slide_xcf_to_png(
-        str(template_path),
-        str(output_path),
-        cal_date_text,
-        cal_church_text,
-        layer_date_name=args.layer_date,
-        layer_church_name=args.layer_church,
-    )
-    logging.info("Exported welcome slide PNG: %s", output_path)
+        if args.output:
+            output_path = _resolve_path(args.output, projection_dir)
+        else:
+            output_path = template_path.with_suffix(".png")
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        update_welcome_slide_xcf_to_png(
+            str(template_path),
+            str(output_path),
+            cal_date_text,
+            cal_church_text,
+            layer_date_name=args.layer_date,
+            layer_church_name=args.layer_church,
+        )
+        logging.info("Exported welcome slide PNG: %s", output_path)
 
 
 if __name__ == "__main__":
