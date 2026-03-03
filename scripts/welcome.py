@@ -1,5 +1,5 @@
 """
-welcome_slide_headless.py
+welcome.py
 GIMP 3.x headless updater: set cal_date + cal_church text layers and export PNG.
 
 Uses existing weekly_automation infrastructure for config, placeholder extraction,
@@ -116,7 +116,7 @@ def _ensure_gimp_runtime_or_reinvoke(argv: list[str]) -> None:
     py_batch = (
         "import sys; "
         f"sys.path.insert(0, {str(repo_root)!r}); "
-        "import scripts.welcome_slide_headless as w; "
+        "import scripts.welcome as w; "
         f"w.main({argv!r})"
     )
 

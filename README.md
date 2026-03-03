@@ -78,6 +78,26 @@ python scripts/text_gather.py --master "docs/Master 2025-11-23.md"
 python scripts/dissemination.py
 ```
 
+## Rollback Point
+
+Current milestone rollback tag:
+
+- `beta-ready`
+
+Useful commands:
+
+```powershell
+# Inspect the tagged snapshot
+git checkout beta-ready
+
+# Return to main
+git checkout main
+
+# Reset local main to the rollback point (destructive to local commits after the tag)
+git checkout main
+git reset --hard beta-ready
+```
+
 ## License
 Internal project for United Parish of Elkton. Not intended for redistribution.
 
