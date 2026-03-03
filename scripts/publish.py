@@ -214,6 +214,175 @@ def _replace_custom_item_reference(service_data: list, marker_title: str, refere
     return False
 
 
+def _replace_custom_item_second_line(service_data: list, marker_title: str, new_second_line: str) -> bool:
+    """
+    For a custom slide matched by header.title, keep line 1 of raw_slide unchanged
+    and replace line 2 with new_second_line.
+    """
+    marker = marker_title.strip().lower()
+    replacement = (new_second_line or "").strip()
+
+    for item in service_data:
+        svc = item.get("serviceitem")
+        if not isinstance(svc, dict):
+            continue
+
+        header = svc.get("header")
+        if not isinstance(header, dict):
+            continue
+
+        if str(header.get("plugin", "")).lower() != "custom":
+            continue
+
+        title = str(header.get("title", "")).strip().lower()
+        if title != marker:
+            continue
+
+        data = svc.get("data")
+        if not isinstance(data, list) or not data:
+            return False
+        first = data[0] if isinstance(data[0], dict) else {}
+
+        raw = str(first.get("raw_slide", "") or "")
+        lines = raw.splitlines()
+        if not lines:
+            return False
+
+        # Keep line 1, replace line 2, preserve any remaining lines.
+        if len(lines) == 1:
+            lines.append(replacement)
+        else:
+            lines[1] = replacement
+
+        first["raw_slide"] = "\n".join(lines)
+        if not isinstance(data[0], dict):
+            data[0] = first
+
+        return True
+
+    return False
+
+
+def _replace_offertory_prayer_content_and_credits(service_data: list, body_text: str, credit_text: str) -> bool:
+    """
+    Update the custom slide titled 'Offertory Prayer':
+      - Keep the first line of raw_slide (title/heading markup) unchanged
+      - Replace body text with body_text
+      - Update header.footer so credits project from offertory_credit
+    """
+    body = (body_text or "").strip()
+    if not body:
+        return False
+
+    credits_raw = (credit_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    credit_lines = [line.strip() for line in credits_raw.split("\n") if line.strip()]
+
+    for item in service_data:
+        svc = item.get("serviceitem")
+        if not isinstance(svc, dict):
+            continue
+
+        header = svc.get("header")
+        if not isinstance(header, dict):
+            continue
+
+        if str(header.get("plugin", "")).strip().lower() != "custom":
+            continue
+
+        title = str(header.get("title", "")).strip().lower()
+        if title != "offertory prayer":
+            continue
+
+        data = svc.get("data")
+        first = data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else {}
+        raw = str(first.get("raw_slide", "") or "")
+        lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        first_line = lines[0].strip() if lines and lines[0].strip() else "{h}Offertory Prayer{/h}"
+
+        svc["data"] = [{
+            "title": "Offertory Prayer",
+            "raw_slide": f"{first_line}\n\n{body}\n",
+            "verseTag": "1",
+        }]
+
+        footer_title = "Offertory Prayer"
+        header["title"] = footer_title
+        header["footer"] = [footer_title, *credit_lines] if credit_lines else [footer_title]
+        return True
+
+    return False
+
+
+def _format_benediction_slides_for_openlp(benediction_text: str) -> list[str] | None:
+    """
+    Return 3 deterministic Benediction slide bodies:
+      1) Paragraph 1 flattened, bounded by yellow tags
+      2) Paragraph 2 flattened, bounded by yellow tags
+      3) Fixed congregational response
+    """
+    normalized = (benediction_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", normalized) if p.strip()]
+    flattened = [re.sub(r"\s+", " ", p) for p in paragraphs]
+
+    if len(flattened) < 2:
+        return None
+
+    slide_1 = f"{{y}}{flattened[0]}{{/y}}"
+    slide_2 = f"{{y}}{flattened[1]}{{/y}}"
+    slide_3 = (
+        "{p}{y}We go in peace to love and serve the Lord,{/y}{/p}\n"
+        "{it}All:{/it} {st}In the name of Christ. Amen.{/st}"
+    )
+    return [slide_1, slide_2, slide_3]
+
+
+def _replace_benediction_custom_slide(service_data: list, benediction_text: str) -> bool:
+    """
+    Update custom slide titled 'Benediction':
+      - Keep the first raw_slide line unchanged (heading/markup)
+      - Replace body with formatted benediction content
+    """
+    slides = _format_benediction_slides_for_openlp(benediction_text)
+    if not slides:
+        return False
+
+    for item in service_data:
+        svc = item.get("serviceitem")
+        if not isinstance(svc, dict):
+            continue
+
+        header = svc.get("header")
+        if not isinstance(header, dict):
+            continue
+
+        if str(header.get("plugin", "")).strip().lower() != "custom":
+            continue
+
+        title = str(header.get("title", "")).strip().lower()
+        if title != "benediction":
+            continue
+
+        svc["data"] = [{
+            "title": "Benediction",
+            "raw_slide": slides[0],
+            "verseTag": "1",
+        }, {
+            "title": "Benediction",
+            "raw_slide": slides[1],
+            "verseTag": "2",
+        }, {
+            "title": "Benediction",
+            "raw_slide": slides[2],
+            "verseTag": "3",
+        }]
+
+        header["title"] = "Benediction"
+
+        return True
+
+    return False
+
+
 def _remove_service_items_by_marker(service_data: list, plugin: str, marker_title: str) -> int:
     """Remove all service items matching plugin + header.title (case-insensitive). Returns count removed."""
     plugin = (plugin or "").strip().lower()
@@ -466,6 +635,9 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
     scripture_ref_1 = extract_block(master_md, "scripture_ref_1").strip()
     scripture_ref_2 = extract_block(master_md, "scripture_ref_2").strip()
     scripture_ref_3 = extract_block(master_md, "scripture_ref_3").strip()
+    offertory_source_text = extract_block(master_md, "offertory_source_text").strip()
+    offertory_credit = extract_block(master_md, "offertory_credit").strip()
+    benediction_text = extract_block(master_md, "benediction_text").strip()
 
     # Songs (OpenLP markers live in the service templates)
     song_opening_title = extract_block(master_md, f"song_opening_title_{church}").strip()
@@ -556,6 +728,28 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
             changed = True
     except Exception as e:
         logging.warning("Could not inject songs into %s (%s): %s", osz_path, church, e)
+
+    # Reading custom slides: keep first line, replace second line with scripture reference
+    reading_map = (
+        ("Reading: 1", scripture_ref_1),
+        ("Reading: 2", scripture_ref_2),
+        ("Reading: Gospel", scripture_ref_3),
+    )
+    for reading_title, reading_ref in reading_map:
+        if not reading_ref:
+            continue
+        if _replace_custom_item_second_line(service_data, reading_title, reading_ref.strip()):
+            changed = True
+
+    if _replace_offertory_prayer_content_and_credits(
+        service_data,
+        offertory_source_text,
+        offertory_credit,
+    ):
+        changed = True
+
+    if _replace_benediction_custom_slide(service_data, benediction_text):
+        changed = True
 
     if changed:
         _write_service_data_to_osz(osz_path, service_data, payloads, infos)
