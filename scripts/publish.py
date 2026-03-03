@@ -1157,6 +1157,7 @@ def build_master_lookup(master_md: str, placeholder_names: Iterable[str]) -> Dic
     for name in placeholder_names:
         raw_value = extract_block(master_md, name)
         value = _strip_noncontent_lines_for_templates(raw_value)
+        value = _format_aof_ref_for_templates(name, value)
         value = _format_song_id_for_templates(name, value)
         value = _format_multiline_fields_for_templates(name, value)
         lookup[name] = value
@@ -1217,6 +1218,24 @@ def _format_song_id_for_templates(placeholder_name: str, value: str) -> str:
     remainder = (m.group(3) or "").strip()
     formatted = f"{color} #{number}"
     return f"{formatted} {remainder}".strip()
+
+
+def _format_aof_ref_for_templates(placeholder_name: str, value: str) -> str:
+    """
+    Normalize AoF references for bulletin/Obsidian template rendering.
+
+    Example:
+        - 38top -> 38 top
+    """
+    if placeholder_name != "aof_ref":
+        return value
+
+    base = value.split("%%", 1)[0].strip()
+    m = re.match(r"^(\d+)([A-Za-z].*)$", base)
+    if not m:
+        return value
+
+    return f"{m.group(1)} {m.group(2).strip()}".strip()
 
 
 def _format_multiline_fields_for_templates(placeholder_name: str, value: str) -> str:
