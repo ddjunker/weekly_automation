@@ -63,6 +63,10 @@ class Config:
         self.elkton_bible_db = _p("elkton_bible_db")
         self.lb_bible_db = _p("lb_bible_db")
 
+        # Welcome slide / GIMP integration
+        self.projection_pics_dir = _p("projection_pics_dir")
+        self.gimp_bin_dir = _p("gimp_bin_dir")
+
         # ----------------------------------------------------------
         # NEW FIELD: browser profile directory for Playwright
         # ----------------------------------------------------------
