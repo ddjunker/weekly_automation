@@ -266,8 +266,8 @@ def _replace_custom_item_second_line(service_data: list, marker_title: str, new_
 def _replace_offertory_prayer_content_and_credits(service_data: list, body_text: str, credit_text: str) -> bool:
     """
     Update the custom slide titled 'Offertory Prayer':
-      - Keep the first line of raw_slide (title/heading markup) unchanged
-      - Replace body text with body_text
+            - Rebuild slide data from scratch to avoid retaining stale template text
+            - Replace body text with body_text
       - Update header.footer so credits project from offertory_credit
     """
     body = (body_text or "").strip()
@@ -293,15 +293,9 @@ def _replace_offertory_prayer_content_and_credits(service_data: list, body_text:
         if title != "offertory prayer":
             continue
 
-        data = svc.get("data")
-        first = data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else {}
-        raw = str(first.get("raw_slide", "") or "")
-        lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-        first_line = lines[0].strip() if lines and lines[0].strip() else "{h}Offertory Prayer{/h}"
-
         svc["data"] = [{
             "title": "Offertory Prayer",
-            "raw_slide": f"{first_line}\n\n{body}\n",
+            "raw_slide": f"{{h}}Offertory Prayer{{/h}}\n\n{body}\n",
             "verseTag": "1",
         }]
 
