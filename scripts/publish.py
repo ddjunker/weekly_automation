@@ -401,10 +401,21 @@ def _remove_service_items_by_marker(service_data: list, plugin: str, marker_titl
     return removed
 
 
-def _replace_song_item_by_marker(service_data: list, marker_title: str, new_title: str, lyrics_text: str) -> bool:
+def _replace_song_item_by_marker(
+    service_data: list,
+    marker_title: str,
+    new_title: str,
+    lyrics_text: str,
+    *,
+    authors: str = "",
+    copyright_text: str = "",
+    ccli_number: str = "",
+    hymnal: str = "",
+    entry: str = "",
+) -> bool:
     """
-    Replace one Songs-plugin service item (matched by header.title) with new song text.
-    We update the projected slide data and basic header title/footer.
+    Replace one Songs-plugin service item (matched by header.title) with new song text
+    and refresh song metadata in header.data + header.footer.
     """
     marker = (marker_title or "").strip().lower()
     if not marker:
@@ -441,19 +452,54 @@ def _replace_song_item_by_marker(service_data: list, marker_title: str, new_titl
             continue
 
         header["title"] = new_title
-        footer = header.get("footer")
-        if isinstance(footer, list) and footer:
-            footer[0] = new_title
-        elif isinstance(footer, list):
-            header["footer"] = [new_title]
-        else:
-            header["footer"] = [new_title]
+        # Preserve configured CCLI license line from template footer when present.
+        existing_footer = header.get("footer")
+        existing_footer_lines = existing_footer if isinstance(existing_footer, list) else []
+        license_line = next(
+            (
+                str(line).strip()
+                for line in existing_footer_lines
+                if isinstance(line, str) and str(line).strip().lower().startswith("ccli license:")
+            ),
+            "",
+        )
+
+        footer_lines = [new_title]
+
+        authors_clean = (authors or "").strip()
+        if authors_clean:
+            footer_lines.append(f"Written by: {authors_clean}")
+
+        copyright_clean = (copyright_text or "").strip()
+        if copyright_clean:
+            footer_lines.append(f"(c) {copyright_clean}")
+
+        hymnal_clean = (hymnal or "").strip()
+        entry_clean = (entry or "").strip()
+        if hymnal_clean and entry_clean:
+            footer_lines.append(f"{hymnal_clean} #{entry_clean}")
+        elif hymnal_clean:
+            footer_lines.append(hymnal_clean)
+
+        ccli_song = (ccli_number or "").strip()
+        if ccli_song:
+            footer_lines.append(f"CCLI Song # {ccli_song}")
+
+        if license_line:
+            footer_lines.append(license_line)
+
+        header["footer"] = footer_lines
 
         hdata = header.get("data")
         if isinstance(hdata, dict):
             hdata["title"] = new_title
         else:
             header["data"] = {"title": new_title}
+            hdata = header["data"]
+
+        hdata["authors"] = (authors or "").strip()
+        hdata["copyright"] = (copyright_text or "").strip()
+        hdata["ccli_number"] = (ccli_number or "").strip()
 
         svc["data"] = slides
         return True
@@ -839,7 +885,17 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
 
         lyrics_text = xml_to_text(lyrics_xml)
         new_title = str(song.get("title") or title or f"{hymnal} {entry}").strip()
-        return _replace_song_item_by_marker(service_data, song_marker, new_title, str(lyrics_text).strip())
+        return _replace_song_item_by_marker(
+            service_data,
+            song_marker,
+            new_title,
+            str(lyrics_text).strip(),
+            authors=str(song.get("authors") or "").strip(),
+            copyright_text=str(song.get("copyright") or "").strip(),
+            ccli_number=str(song.get("ccli_number") or "").strip(),
+            hymnal=str(hymnal or "").strip(),
+            entry=str(entry or "").strip(),
+        )
 
     slots = (
         ("opening", opening_title, opening_id),

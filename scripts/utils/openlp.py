@@ -130,19 +130,32 @@ def connect_sqlite(path: Path) -> sqlite3.Connection:
 
 def load_song(church: str, uuid: int) -> dict | None:
     """
-    Return a dict: {id, title, lyrics, hymnal, entry}
+    Return a dict with core song data and footer metadata used by OpenLP services:
+    {id, title, lyrics, hymnal, entry, authors, copyright, ccli_number}
     """
     path = get_songs_db(church)
     conn = connect_sqlite(path)
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT s.id, s.title, s.lyrics,
-               sb.name AS hymnal, ssb.entry AS entry
+        SELECT s.id,
+               s.title,
+               s.lyrics,
+               s.copyright,
+               s.ccli_number,
+               sb.name AS hymnal,
+               ssb.entry AS entry,
+               GROUP_CONCAT(
+                   COALESCE(NULLIF(TRIM(a.display_name), ''), TRIM((COALESCE(a.first_name, '') || ' ' || COALESCE(a.last_name, '')))),
+                   ' and '
+               ) AS authors
         FROM songs s
         LEFT JOIN songs_songbooks ssb ON s.id = ssb.song_id
         LEFT JOIN song_books sb ON ssb.songbook_id = sb.id
+        LEFT JOIN authors_songs als ON s.id = als.song_id
+        LEFT JOIN authors a ON als.author_id = a.id
         WHERE s.id = ?
+        GROUP BY s.id, s.title, s.lyrics, s.copyright, s.ccli_number, sb.name, ssb.entry
     """, (uuid,))
 
     row = cur.fetchone()
@@ -156,6 +169,9 @@ def load_song(church: str, uuid: int) -> dict | None:
         "lyrics": full_scrub(row["lyrics"] or ""),
         "hymnal": row["hymnal"],
         "entry": row["entry"],
+        "authors": clean_text(row["authors"] or ""),
+        "copyright": clean_text(row["copyright"] or ""),
+        "ccli_number": clean_text(str(row["ccli_number"] or "")),
     }
 
 
