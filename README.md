@@ -75,7 +75,9 @@ Example workflow:
 
 ```powershell
 python scripts/text_gather.py --master "docs/Master 2025-11-23.md"
-python scripts/dissemination.py
+python scripts/music_gather.py --master "docs/Master 2025-11-23.md"
+python scripts/welcome.py
+python -m scripts.publish "Master 2025-11-23.md"
 ```
 
 ## Rollback Point

@@ -1,3 +1,4 @@
+import yaml
 import regex as re
 from .text_clean import clean_text
 
@@ -34,3 +35,40 @@ def replace_placeholder(md: str, placeholder: str, content: str) -> str:
     content = clean_text(content)
     pattern = rf"(\{{{placeholder}\}})"
     return re.sub(pattern, content, md, count=1)
+
+
+# ---------------------------------------------------------------------------
+# Serviceinfo block helpers (shared by text_gather.py and music_gather.py)
+# ---------------------------------------------------------------------------
+
+def extract_serviceinfo_block(md: str) -> tuple[str | None, dict]:
+    """
+    Extract the serviceinfo fenced code block and parse its YAML content.
+    Returns (raw_block, parsed_dict). If not found, returns (None, {}).
+    """
+    match = re.search(r'```serviceinfo\s*([\s\S]+?)```', md)
+    if not match:
+        return None, {}
+    raw = match.group(1)
+    try:
+        data = yaml.safe_load(raw)
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        data = {}
+    return match.group(0), data
+
+
+def update_serviceinfo_block(md: str, updates: dict) -> str:
+    """
+    Update the serviceinfo block in md with the given updates dict.
+    Returns the new markdown text.
+    """
+    old_block, data = extract_serviceinfo_block(md)
+    data.update(updates)
+    new_yaml = yaml.dump(data, sort_keys=False, allow_unicode=True)
+    new_block = f"```serviceinfo\n{new_yaml}```"
+    if old_block:
+        return md.replace(old_block, new_block)
+    # Append at end if not found
+    return md.rstrip() + "\n\n" + new_block + "\n"

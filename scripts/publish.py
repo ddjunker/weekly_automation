@@ -1,4 +1,3 @@
-# Combined function for both markdown and writer outputs
 from __future__ import annotations
 import logging
 import re
@@ -12,6 +11,12 @@ import zipfile
 import tempfile
 from copy import deepcopy
 from xml.etree import ElementTree as ET
+
+from scripts.utils.config import config
+from scripts.utils.file_io import read_text, write_text
+from scripts.utils.logging_utils import init_logging
+from scripts.utils.placeholder import extract_block
+from scripts.utils.text_clean import clean_text, clean_markdown
 
 # Add template mappings at the top so they are available to all functions
 PASTOR_TEMPLATE_BY_COMMUNION = {
@@ -667,7 +672,6 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
       - CtW for both churches
       - AoF for Elkton
     """
-    from scripts.utils.placeholder import extract_block
     from scripts.utils.openlp import get_scripture_text
 
     ctw_ref = extract_block(master_md, "ctw_ref").strip()
@@ -947,11 +951,6 @@ def copy_openlp_templates_for_each_church(
     with a date-based name, using config and file I/O utilities.
     Returns a dict mapping church name to the new file path.
     """
-    from scripts.utils.config import config
-    from scripts.utils.file_io import safe_mkdir
-    from scripts.utils.file_io import read_text, write_text
-    from scripts.utils.placeholder import extract_block
-
     init_logging(verbose=verbose)
 
     worship_dir = config.worship_dir
@@ -1054,6 +1053,8 @@ def build_markdown_and_writer_outputs(
         raise ValueError(f"No templates for communion type: {communion}")
 
     date_slug = _get_date_slug(master_md)
+    writer_info = build_librewriter_outputs(master_path=master_path, strict=strict, verbose=verbose)
+    year_dir = writer_info["year_dir"]
 
     speaker_results = {}
     writer_results = {}
@@ -1079,18 +1080,12 @@ def build_markdown_and_writer_outputs(
         speaker_results[church] = RenderResult(md_out, md_warnings)
 
         # Writer
-        # Use build_librewriter_outputs to get year_dir
-        writer_info = build_librewriter_outputs(master_path=master_path, strict=strict, verbose=verbose)
-        year_dir = writer_info["year_dir"]
         writer_template_path = year_dir / writer_template_name
         if not writer_template_path.exists():
             logging.warning(f"Writer template not found: {writer_template_path}")
             writer_results[church] = None
         else:
             # Replace placeholders in content.xml of the Writer template
-            import zipfile
-            from io import BytesIO
-
             writer_out = year_dir / f"{Path(writer_template_name).stem}--{date_slug}.odt"
             with zipfile.ZipFile(writer_template_path, 'r') as zin:
                 with zipfile.ZipFile(writer_out, 'w') as zout:
@@ -1133,23 +1128,6 @@ def build_markdown_and_writer_outputs(
         logging.warning("[Liturgist] %s", w)
 
     return speaker_results, liturgist_result, writer_results
-# scripts/publish.py
-
-
-
-import logging
-import re
-import argparse
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, Iterable, Tuple
-from datetime import datetime
-
-from scripts.utils.config import config
-from scripts.utils.file_io import read_text, write_text, safe_mkdir
-from scripts.utils.logging_utils import init_logging
-from scripts.utils.placeholder import extract_block
-from scripts.utils.text_clean import clean_text, clean_markdown
 
 
 def parse_args():
@@ -1446,92 +1424,10 @@ def _get_date_slug(master_md: str) -> str:
     return raw.lower()
 
 
-def _speaker_output_path(worship_dir: Path, date_slug: str, template_name: str) -> Path:
-    stem = Path(template_name).stem
-    return worship_dir / f"{stem}--{date_slug}.md"
-
-
 def _liturgist_output_path(worship_dir: Path, date_slug: str) -> Path:
     return worship_dir / f"Liturgist--{date_slug}.md"
 
 
-
-# -----------------------------------------------------------------------------
-# Public API: build files
-# -----------------------------------------------------------------------------
-
-def build_markdown_outputs(
-    *,
-    master_path: Path | None = None,
-    templates_dir: Path | None = None,
-    strict: bool = False,
-    verbose: bool = False,
-) -> Tuple[RenderResult, RenderResult]:
-    """
-    Generate:
-      1) one Pastor/PastorC* speaker markdown file
-      2) Liturgist markdown file
-
-    Returns (speaker_result, liturgist_result)
-    """
-    init_logging(verbose=verbose)
-
-    worship_dir = config.worship_dir
-
-    if master_path is None:
-        raise ValueError("master_path must be provided")
-    if templates_dir is None:
-        templates_dir = worship_dir / "templates"
-
-    if not master_path.exists():
-        raise FileNotFoundError(f"Master.md not found at: {master_path}")
-
-    master_md = read_text(master_path)
-
-    communion = extract_block(master_md, "communion").strip() or "0"
-    templates = PASTOR_TEMPLATE_BY_COMMUNION.get(communion)
-    template_name = (templates or {}).get("elkton_md", "Pastor.md")
-
-    speaker_template_path = templates_dir / template_name
-    liturgist_template_path = templates_dir / DEFAULT_LITURGIST_TEMPLATE
-
-    if not speaker_template_path.exists():
-        raise FileNotFoundError(f"Speaker template not found: {speaker_template_path}")
-    if not liturgist_template_path.exists():
-        raise FileNotFoundError(f"Liturgist template not found: {liturgist_template_path}")
-
-    date_slug = _get_date_slug(master_md)
-
-    # Render speaker
-    speaker_template = read_text(speaker_template_path)
-    speaker_rendered, speaker_warnings = render_markdown_template(
-        speaker_template,
-        master_md,
-        strict=strict,
-    )
-    speaker_out = _speaker_output_path(worship_dir, date_slug, template_name)
-    write_text(speaker_out, speaker_rendered)
-
-    # Render liturgist
-    liturgist_template = read_text(liturgist_template_path)
-    liturgist_rendered, liturgist_warnings = render_markdown_template(
-        liturgist_template,
-        master_md,
-        strict=strict,
-    )
-    liturgist_out = _liturgist_output_path(worship_dir, date_slug)
-    write_text(liturgist_out, liturgist_rendered)
-
-    # Log warnings
-    for w in speaker_warnings:
-        logging.warning("[Speaker] %s", w)
-    for w in liturgist_warnings:
-        logging.warning("[Liturgist] %s", w)
-
-    return (
-        RenderResult(speaker_out, speaker_warnings),
-        RenderResult(liturgist_out, liturgist_warnings),
-    )
 
 
 # -----------------------------------------------------------------------------
@@ -1543,17 +1439,12 @@ def build_librewriter_outputs(*, master_path: Path | None = None, strict: bool =
     Access the appropriate subdirectory under bulletin_dir based on the year in {cal_date}.
     This will be expanded to generate Writer files from templates in that subdirectory.
     """
-    from scripts.utils.config import config
-    from scripts.utils.file_io import read_text
-
     if master_path is None:
         raise ValueError("master_path must be provided")
     if not master_path.exists():
         raise FileNotFoundError(f"Master.md not found at: {master_path}")
 
     master_md = read_text(master_path)
-    # Extract the calendar date from the master file
-    from scripts.utils.placeholder import extract_block
     cal_date = extract_block(master_md, "cal_date").strip()
     if not cal_date:
         raise ValueError("{cal_date} not found in master file")
@@ -1577,8 +1468,7 @@ def build_librewriter_outputs(*, master_path: Path | None = None, strict: bool =
             continue
     if not year:
         # fallback: try to extract a 4-digit year
-        import re
-        m = re.search(r"(20\\d{2})", cal_date)
+        m = re.search(r"(20\d{2})", cal_date)
         if m:
             year = m.group(1)
         else:
@@ -1593,7 +1483,6 @@ def build_librewriter_outputs(*, master_path: Path | None = None, strict: bool =
         raise FileNotFoundError(f"Bulletin year directory does not exist: {year_dir}")
 
     # List all files in the year directory (LibreOffice templates and Writer docs)
-    from scripts.utils.file_io import list_files
     files = list(year_dir.glob("*.ott")) + list(year_dir.glob("*.odt"))
 
     # For now, just return the directory and file list (stub for future expansion)

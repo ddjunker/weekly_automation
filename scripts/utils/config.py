@@ -82,3 +82,19 @@ class Config:
 
 # Instantiate global singleton
 config = Config()
+
+
+def resolve_master_path(master_arg: str) -> Path:
+    """
+    Resolve a Master markdown path:
+      1. Absolute path → returned as-is.
+      2. Relative path → resolved under config.worship_dir.
+    worship_dir must exist (strict).
+    """
+    mp = Path(master_arg)
+    if mp.is_absolute():
+        return mp
+    worship = config.worship_dir.expanduser().resolve()
+    if not worship.exists():
+        raise FileNotFoundError(f"Worship directory not found: {worship}")
+    return worship / master_arg

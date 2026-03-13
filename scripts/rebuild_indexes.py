@@ -22,7 +22,20 @@ import argparse
 from pathlib import Path
 
 from scripts.utils.config import config
-from scripts.utils.openlp_helpers import rebuild_custom_index
+from scripts.utils.openlp import list_custom_slides
+
+
+# ---------------------------------------------------------
+# Slide index builder
+# ---------------------------------------------------------
+def rebuild_custom_index(church: str, out_path: Path):
+    """Write a markdown title list of all custom slides for a church."""
+    slides = list_custom_slides(church)
+    lines = [f"# Custom Slide Index: {church}\n"]
+    for s in slides:
+        lines.append(f"- [{s['uuid']}] {s['title']}")
+    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
 
 # ---------------------------------------------------------
 # Placeholder for future song-index builder
@@ -72,22 +85,20 @@ def main():
     if do_slides:
         print("→ Rebuilding Slide Indexes")
         if do_elkton:
-            db = config.elkton_root / "custom" / "custom.sqlite"
             out = config.worship_dir / "openlp_custom_index_elkton.md"
-            if db.exists():
-                rebuild_custom_index(db, out)
+            try:
+                rebuild_custom_index("elkton", out)
                 print(f"[OK] Elkton slides → {out}")
-            else:
-                print(f"[WARN] Elkton slide DB missing → {db}")
+            except FileNotFoundError as e:
+                print(f"[WARN] Elkton slide DB missing: {e}")
 
         if do_lb:
-            db = config.lb_root / "custom" / "custom.sqlite"
             out = config.worship_dir / "openlp_custom_index_lb.md"
-            if db.exists():
-                rebuild_custom_index(db, out)
+            try:
+                rebuild_custom_index("lb", out)
                 print(f"[OK] LB slides → {out}")
-            else:
-                print(f"[WARN] LB slide DB missing → {db}")
+            except FileNotFoundError as e:
+                print(f"[WARN] LB slide DB missing: {e}")
 
         print()
 

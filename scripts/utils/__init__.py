@@ -1,6 +1,9 @@
 from .text_clean import clean_text
 from .file_io import read_text, write_text, safe_mkdir, list_files
-from .placeholder import extract_block, append_below_placeholder, replace_placeholder, has_placeholder
+from .placeholder import (
+    extract_block, append_below_placeholder, replace_placeholder, has_placeholder,
+    extract_serviceinfo_block, update_serviceinfo_block,
+)
 
 # NEW — merged OpenLP module
 from .openlp import (

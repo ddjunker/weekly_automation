@@ -30,41 +30,18 @@ import argparse
 import logging
 import re
 from dataclasses import dataclass
-from pathlib import Path
 
-import yaml
-
-from scripts.utils.config import config
+from scripts.utils.config import config, resolve_master_path
 from scripts.utils.file_io import read_text, write_text
-from scripts.utils.placeholder import append_below_placeholder, extract_block
+from scripts.utils.placeholder import (
+    append_below_placeholder,
+    extract_block,
+    extract_serviceinfo_block,
+    update_serviceinfo_block,
+)
 from scripts.utils.text_clean import clean_markdown, clean_text, xml_to_text
 from scripts.utils.openlp import build_song_index, load_song
 
-
-# =====================================================================
-# Master path resolution (mirrors text_gather.py)
-# =====================================================================
-
-def resolve_master_path(master_arg: str) -> Path:
-    """
-    Resolve the Master markdown file path:
-
-    1. If master_arg is an absolute path → return it unchanged.
-    2. Otherwise → return config.worship_dir / master_arg
-    3. worship_dir must exist (strict behavior).
-    """
-    mp = Path(master_arg)
-
-    # Case 1: absolute override
-    if mp.is_absolute():
-        return mp
-
-    # Case 2: relative → use worship_dir
-    worship = config.worship_dir.expanduser().resolve()
-    if not worship.exists():
-        raise FileNotFoundError(f"Worship directory not found: {worship}")
-
-    return worship / master_arg
 
 
 # =====================================================================
@@ -371,43 +348,6 @@ def process_master(md: str, elk_index: dict, lb_index: dict) -> str:
 
     return md
 
-
-# =====================================================================
-# Service info block handling
-# =====================================================================
-
-def extract_serviceinfo_block(md: str) -> tuple[str | None, dict]:
-    """
-    Extract the serviceinfo fenced code block and parse its YAML content.
-    Returns (raw_block, parsed_dict). If not found, returns (None, {}).
-    """
-    match = re.search(r'```serviceinfo\s*([\s\S]+?)```', md)
-    if not match:
-        return None, {}
-    raw = match.group(1)
-    try:
-        data = yaml.safe_load(raw)
-        if not isinstance(data, dict):
-            data = {}
-    except Exception:
-        data = {}
-    return match.group(0), data
-
-
-def update_serviceinfo_block(md: str, updates: dict) -> str:
-    """
-    Update the serviceinfo block in md with the given updates dict.
-    Returns the new markdown text.
-    """
-    old_block, data = extract_serviceinfo_block(md)
-    data.update(updates)
-    new_yaml = yaml.dump(data, sort_keys=False, allow_unicode=True)
-    new_block = f"```serviceinfo\n{new_yaml}```"
-    if old_block:
-        return md.replace(old_block, new_block)
-    else:
-        # Append at end if not found
-        return md.rstrip() + "\n\n" + new_block + "\n"
 
 
 # =====================================================================
