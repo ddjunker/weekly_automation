@@ -143,11 +143,13 @@ def load_song(church: str, uuid: int) -> dict | None:
                s.lyrics,
                s.copyright,
                s.ccli_number,
+               s.search_title,
+               s.alternate_title,
                sb.name AS hymnal,
                ssb.entry AS entry,
                GROUP_CONCAT(
                    COALESCE(NULLIF(TRIM(a.display_name), ''), TRIM((COALESCE(a.first_name, '') || ' ' || COALESCE(a.last_name, '')))),
-                   ' and '
+                   ', '
                ) AS authors
         FROM songs s
         LEFT JOIN songs_songbooks ssb ON s.id = ssb.song_id
@@ -155,7 +157,7 @@ def load_song(church: str, uuid: int) -> dict | None:
         LEFT JOIN authors_songs als ON s.id = als.song_id
         LEFT JOIN authors a ON als.author_id = a.id
         WHERE s.id = ?
-        GROUP BY s.id, s.title, s.lyrics, s.copyright, s.ccli_number, sb.name, ssb.entry
+        GROUP BY s.id, s.title, s.lyrics, s.copyright, s.ccli_number, s.search_title, s.alternate_title, sb.name, ssb.entry
     """, (uuid,))
 
     row = cur.fetchone()
@@ -166,6 +168,8 @@ def load_song(church: str, uuid: int) -> dict | None:
     return {
         "id": row["id"],
         "title": clean_text(row["title"] or ""),
+        "search_title": row["search_title"] or "",
+        "alternate_title": row["alternate_title"] or "",
         "lyrics": full_scrub(row["lyrics"] or ""),
         "hymnal": row["hymnal"],
         "entry": row["entry"],

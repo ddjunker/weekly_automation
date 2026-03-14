@@ -417,6 +417,8 @@ def _replace_song_item_by_marker(
     ccli_number: str = "",
     hymnal: str = "",
     entry: str = "",
+    search_title: str = "",
+    alternate_title: str = "",
 ) -> bool:
     """
     Replace one Songs-plugin service item (matched by header.title) with new song text
@@ -471,13 +473,19 @@ def _replace_song_item_by_marker(
 
         footer_lines = [new_title]
 
+        # authors from DB are comma-separated; footer display uses "and"
         authors_clean = (authors or "").strip()
         if authors_clean:
-            footer_lines.append(f"Written by: {authors_clean}")
+            authors_display = " and ".join(a.strip() for a in authors_clean.split(",") if a.strip())
+            footer_lines.append(f"Written by: {authors_display}")
 
         copyright_clean = (copyright_text or "").strip()
         if copyright_clean:
-            footer_lines.append(f"(c) {copyright_clean}")
+            # Avoid double-prefix when DB value already starts with © or (c)
+            if copyright_clean.startswith("©") or copyright_clean.lower().startswith("(c)"):
+                footer_lines.append(copyright_clean)
+            else:
+                footer_lines.append(f"© {copyright_clean}")
 
         hymnal_clean = (hymnal or "").strip()
         entry_clean = (entry or "").strip()
@@ -495,16 +503,30 @@ def _replace_song_item_by_marker(
 
         header["footer"] = footer_lines
 
+        # Use search_title (e.g. "as the deer@") for hdata["title"] so OpenLP
+        # can match the song in its database; fall back to display title.
+        data_title = (search_title or "").strip() or new_title
         hdata = header.get("data")
         if isinstance(hdata, dict):
-            hdata["title"] = new_title
+            hdata["title"] = data_title
         else:
-            header["data"] = {"title": new_title}
+            header["data"] = {"title": data_title}
             hdata = header["data"]
 
-        hdata["authors"] = (authors or "").strip()
-        hdata["copyright"] = (copyright_text or "").strip()
+        hdata["alternate_title"] = (alternate_title or "").strip()
+        hdata["authors"] = authors_clean
+        hdata["copyright"] = copyright_clean
         hdata["ccli_number"] = (ccli_number or "").strip()
+
+        # Update audit field: [title, [authors_list], copyright, ccli_number]
+        # OpenLP uses this to display/refresh the footer in the service manager.
+        authors_list = [a.strip() for a in authors_clean.split(",") if a.strip()] if authors_clean else []
+        header["audit"] = [
+            new_title,
+            authors_list,
+            copyright_clean,
+            (ccli_number or "").strip(),
+        ]
 
         svc["data"] = slides
         return True
@@ -899,6 +921,8 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
             ccli_number=str(song.get("ccli_number") or "").strip(),
             hymnal=str(hymnal or "").strip(),
             entry=str(entry or "").strip(),
+            search_title=str(song.get("search_title") or "").strip(),
+            alternate_title=str(song.get("alternate_title") or "").strip(),
         )
 
     slots = (
