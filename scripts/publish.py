@@ -15,7 +15,7 @@ from xml.etree import ElementTree as ET
 from scripts.utils.config import config
 from scripts.utils.file_io import read_text, write_text
 from scripts.utils.logging_utils import init_logging
-from scripts.utils.placeholder import extract_block
+from scripts.utils.placeholder import extract_block, has_placeholder
 from scripts.utils.text_clean import clean_text, clean_markdown
 
 # Add template mappings at the top so they are available to all functions
@@ -1094,10 +1094,12 @@ def build_markdown_and_writer_outputs(
         if not md_template_path.exists():
             raise FileNotFoundError(f"Speaker template not found: {md_template_path}")
         md_template = read_text(md_template_path)
+        lb_omit_overrides = {"reader": "nobody"} if church == "lb" else {}
         md_rendered, md_warnings = render_markdown_template(
             md_template,
             master_md,
             strict=strict,
+            omit_overrides=lb_omit_overrides,
         )
         md_out = worship_dir / f"{Path(md_template_name).stem}--{date_slug}.md"
         write_text(md_out, md_rendered)
@@ -1207,6 +1209,8 @@ def build_master_lookup(master_md: str, placeholder_names: Iterable[str]) -> Dic
     """
     lookup: Dict[str, str] = {}
     for name in placeholder_names:
+        if not has_placeholder(master_md, name):
+            continue  # not in master → leave template placeholder unchanged
         raw_value = extract_block(master_md, name)
         value = _strip_noncontent_lines_for_templates(raw_value)
         value = _format_aof_ref_for_templates(name, value)
@@ -1374,6 +1378,7 @@ def render_markdown_template(
     master_md: str,
     *,
     strict: bool = False,
+    omit_overrides: dict | None = None,
 ) -> Tuple[str, Tuple[str, ...]]:
     """
     Render a markdown template by replacing placeholders with blocks extracted from Master.md.
@@ -1386,8 +1391,13 @@ def render_markdown_template(
     Also applies:
       - omit rule: if replacement == 'omit', delete entire line containing placeholder
       - delete rule: if replacement == 'delete', replace with empty string
+
+    omit_overrides: dict of {placeholder_name: fallback_value}.  When a placeholder's
+      value would trigger the omit rule, use the fallback value instead of deleting
+      the line.  Example: {"reader": "nobody"} keeps the reader line in PastorLB.md.
     """
     warnings = []
+    omit_overrides = omit_overrides or {}
 
     placeholders = extract_placeholders_used(template_text)
 
@@ -1403,9 +1413,8 @@ def render_markdown_template(
         value = ""
         found = False
         for candidate in candidates:
-            candidate_value = lookup.get(candidate, "")
-            if candidate_value:
-                value = candidate_value
+            if candidate in lookup:
+                value = lookup[candidate]
                 found = True
                 break
 
@@ -1418,8 +1427,12 @@ def render_markdown_template(
 
         value = _apply_delete_rule(value)
 
-        # Apply omit before actual replacement (needs the token still present)
-        rendered = _apply_omit_rule(rendered, name, value)
+        # Apply omit before actual replacement (needs the token still present),
+        # unless this placeholder has an omit override (use the fallback instead).
+        if name in omit_overrides and value.strip().lower() == "omit":
+            value = omit_overrides[name]
+        else:
+            rendered = _apply_omit_rule(rendered, name, value)
 
         # Replace *all* occurrences of the placeholder token with the value
         # (templates sometimes repeat IDs/titles)

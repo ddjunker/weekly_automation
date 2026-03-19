@@ -21,8 +21,6 @@ from scripts.utils.config import config, resolve_master_path
 from scripts.utils.placeholder import (
     append_below_placeholder,
     extract_block,
-    extract_serviceinfo_block,
-    update_serviceinfo_block,
 )
 from scripts.utils.text_clean import clean_markdown, clean_text, xml_to_text
 from scripts.utils.openlp import (
@@ -325,21 +323,6 @@ def main():
         md = append_below_placeholder(md, "benediction_text_alt", ben2)
     md = gather_scripture_text(md)
     md = gather_custom_slides(md)
-
-    # Update serviceinfo block with ctw and scriptures
-    ctw_val = extract_clean(md, "ctw_ref")
-    scriptures = []
-    for idx in (1, 2, 3):
-        ref = extract_clean(md, f"scripture_ref_{idx}")
-        if ref:
-            scriptures.append(ref)
-    updates = {}
-    if ctw_val:
-        updates["ctw"] = ctw_val
-    if scriptures:
-        updates["scriptures"] = scriptures
-    if updates:
-        md = update_serviceinfo_block(md, updates)
 
     master_path.write_text(md, encoding="utf-8")
     print(f"\nUpdated: {master_path}\n")

@@ -11,7 +11,7 @@ Responsibilities
 
     - Middle songs: use OpenLP songs DB (via utils.openlp)
       {song_middle_title_elkton}
-      {song_middle_id_elkton}      →  {song_middle_text_elkton}, {song_middle_xml_elkton}
+      {song_middle_id_elkton}      →  {song_middle_text_elkton}
       (and LB equivalents)
 
     - Closing songs: same as middle songs, with LB special-case
@@ -36,8 +36,6 @@ from scripts.utils.file_io import read_text, write_text
 from scripts.utils.placeholder import (
     append_below_placeholder,
     extract_block,
-    extract_serviceinfo_block,
-    update_serviceinfo_block,
 )
 from scripts.utils.text_clean import clean_markdown, clean_text, xml_to_text
 from scripts.utils.openlp import build_song_index, load_song
@@ -190,39 +188,38 @@ def resolve_openlp_song(
         id_raw: like 'r 123 vv 1-3'
 
     Return:
-        (xml, text)
+        text string
 
     On error:
-        (None, error_message_string)
-        where the error string starts with one of:
+        error_message_string starting with one of:
             "No valid song id"
             "Invalid hymnal prefix"
             "Hymn not found"
             "Lyrics not found"
     """
     if not title and not id_raw:
-        return None, "No valid song id for title ''"
+        return "No valid song id for title ‘’"
 
     parsed = parse_song_id(id_raw, title_for_log=title)
     if not parsed:
-        return None, f"No valid song id for title {title!r}"
+        return f"No valid song id for title {title!r}"
 
     hymnal = hymnal_from_prefix(church, parsed.prefix)
     if not hymnal:
-        return None, f"Invalid hymnal prefix for {title!r}"
+        return f"Invalid hymnal prefix for {title!r}"
 
     key = (hymnal, str(parsed.entry))
     uuid = index.get(key)
     if not uuid:
-        return None, f"Hymn not found in {hymnal}: {title}"
+        return f"Hymn not found in {hymnal}: {title}"
 
     song = load_song(church, int(uuid))
     if not song:
-        return None, f"Lyrics not found for UUID {uuid}"
+        return f"Lyrics not found for UUID {uuid}"
 
     lyrics_xml = str(song["lyrics"] or "").strip()
     if not lyrics_xml:
-        return None, f"Lyrics not found for UUID {uuid}"
+        return f"Lyrics not found for UUID {uuid}"
 
     text = xml_to_text(lyrics_xml)
 
@@ -231,7 +228,7 @@ def resolve_openlp_song(
         verse_note = "Verses: " + ", ".join(map(str, parsed.verses))
         text = f"{verse_note}\n\n{text}"
 
-    return lyrics_xml, text.strip()
+    return text.strip()
 
 
 # =====================================================================
@@ -275,7 +272,6 @@ def process_master(md: str, elk_index: dict, lb_index: dict) -> str:
         title_key = f"song_middle_title_{church}"
         id_key = f"song_middle_id_{church}"
         text_key = f"song_middle_text_{church}"
-        xml_key = f"song_middle_xml_{church}"
 
         title = extract_block(md, title_key)
         sid = extract_block(md, id_key)
@@ -283,28 +279,24 @@ def process_master(md: str, elk_index: dict, lb_index: dict) -> str:
         if not title and not sid:
             continue
 
-        xml, text = resolve_openlp_song(church, cmap, title, sid)
+        text = resolve_openlp_song(church, cmap, title, sid)
 
         # Error categorization (string-prefix-based)
-        if isinstance(text, str):
-            if text.startswith("No valid song id"):
-                md = append_missing(md, text_key, title, church, "invalid song ID")
-                continue
-            if text.startswith("Invalid hymnal prefix"):
-                md = append_missing(md, text_key, title, church, "invalid hymnal prefix")
-                continue
-            if text.startswith("Hymn not found"):
-                md = append_missing(md, text_key, title, church, "not in hymnal index")
-                continue
-            if text.startswith("Lyrics not found"):
-                md = append_missing(md, text_key, title, church, "missing lyrics XML")
-                continue
+        if text.startswith("No valid song id"):
+            md = append_missing(md, text_key, title, church, "invalid song ID")
+            continue
+        if text.startswith("Invalid hymnal prefix"):
+            md = append_missing(md, text_key, title, church, "invalid hymnal prefix")
+            continue
+        if text.startswith("Hymn not found"):
+            md = append_missing(md, text_key, title, church, "not in hymnal index")
+            continue
+        if text.startswith("Lyrics not found"):
+            md = append_missing(md, text_key, title, church, "missing lyrics XML")
+            continue
 
-        # Normal successful case
         if text:
             md = append_below_placeholder(md, text_key, text)
-        if xml:
-            md = append_below_placeholder(md, xml_key, xml)
 
     # ----------------------
     # Closing songs (OpenLP)
@@ -313,7 +305,6 @@ def process_master(md: str, elk_index: dict, lb_index: dict) -> str:
         title_key = f"song_closing_title_{church}"
         id_key = f"song_closing_id_{church}"
         text_key = f"song_closing_text_{church}"
-        xml_key = f"song_closing_xml_{church}"
 
         title = extract_block(md, title_key)
         if not title:
@@ -324,27 +315,23 @@ def process_master(md: str, elk_index: dict, lb_index: dict) -> str:
             continue
 
         sid = extract_block(md, id_key)
-        xml, text = resolve_openlp_song(church, cmap, title, sid)
+        text = resolve_openlp_song(church, cmap, title, sid)
 
-        if isinstance(text, str):
-            if text.startswith("No valid song id"):
-                md = append_missing(md, text_key, title, church, "invalid song ID")
-                continue
-            if text.startswith("Invalid hymnal prefix"):
-                md = append_missing(md, text_key, title, church, "invalid hymnal prefix")
-                continue
-            if text.startswith("Hymn not found"):
-                md = append_missing(md, text_key, title, church, "not in hymnal index")
-                continue
-            if text.startswith("Lyrics not found"):
-                md = append_missing(md, text_key, title, church, "missing lyrics XML")
-                continue
+        if text.startswith("No valid song id"):
+            md = append_missing(md, text_key, title, church, "invalid song ID")
+            continue
+        if text.startswith("Invalid hymnal prefix"):
+            md = append_missing(md, text_key, title, church, "invalid hymnal prefix")
+            continue
+        if text.startswith("Hymn not found"):
+            md = append_missing(md, text_key, title, church, "not in hymnal index")
+            continue
+        if text.startswith("Lyrics not found"):
+            md = append_missing(md, text_key, title, church, "missing lyrics XML")
+            continue
 
-        # Normal successful case
         if text:
             md = append_below_placeholder(md, text_key, text)
-        if xml:
-            md = append_below_placeholder(md, xml_key, xml)
 
     return md
 
@@ -376,26 +363,6 @@ def main():
 
     md = read_text(master_path)
     updated = process_master(md, elk_index, lb_index)
-
-    # Update serviceinfo block with hymns and special_music
-    hymns = []
-    for church in ("elkton", "lb"):
-        title = extract_block(updated, f"song_opening_title_{church}")
-        if title:
-            hymns.append(str(title).strip())
-    # Optionally, add special_music from a placeholder (customize as needed)
-    special_music = []
-    for church in ("elkton", "lb"):
-        sm_title = extract_block(updated, f"song_middle_title_{church}")
-        if sm_title:
-            special_music.append(str(sm_title).strip())
-    updates = {}
-    if hymns:
-        updates["hymns"] = hymns
-    if special_music:
-        updates["special_music"] = special_music
-    if updates:
-        updated = update_serviceinfo_block(updated, updates)
 
     if updated != md:
         write_text(master_path, updated)
