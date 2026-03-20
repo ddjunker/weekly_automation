@@ -17,7 +17,9 @@ def strip_markdown_comments(text: str) -> str:
 
 def extract_block(md: str, placeholder: str) -> str:
     placeholder = clean_text(placeholder)
-    pattern = rf"\{{{placeholder}\}}\s*(.*?)(?=\n\s*\{{|\Z)"
+    # =* after token handles Obsidian highlight syntax: =={placeholder}==
+    # lookahead also handles =={next_placeholder}== lines
+    pattern = rf"\{{{placeholder}\}}=*\s*(.*?)(?=\n\s*=*\{{|\Z)"
     m = re.search(pattern, md, flags=re.S)
     return strip_markdown_comments(m.group(1)) if m else ""
 
@@ -27,7 +29,8 @@ def has_placeholder(md: str, placeholder: str) -> bool:
 def append_below_placeholder(md: str, placeholder: str, content: str) -> str:
     placeholder = clean_text(placeholder)
     content = clean_text(content)
-    pattern = rf"(\{{{placeholder}\}}\s*)"
+    # =* after token handles Obsidian highlight syntax: =={placeholder}==
+    pattern = rf"(\{{{placeholder}\}}=*\s*)"
     return re.sub(pattern, r"\g<1>" + content + "\n", md, count=1)
 
 def replace_placeholder(md: str, placeholder: str, content: str) -> str:

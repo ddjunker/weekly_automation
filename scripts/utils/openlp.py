@@ -231,7 +231,7 @@ def load_custom_slide(church: str, uuid: int) -> dict | None:
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, title, text FROM custom_slide
+        SELECT id, title, credits, text FROM custom_slide
         WHERE id = ?
     """, (uuid,))
 
@@ -243,6 +243,7 @@ def load_custom_slide(church: str, uuid: int) -> dict | None:
     return {
         "id": row["id"],
         "title": clean_text(row["title"] or ""),
+        "credits": clean_text(row["credits"] or ""),
         "text": full_scrub(row["text"] or ""),
     }
 

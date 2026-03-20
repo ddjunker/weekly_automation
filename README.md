@@ -80,6 +80,29 @@ python scripts/welcome.py
 python -m scripts.publish "Master 2025-11-23.md"
 ```
 
+### publish.py output switches
+
+By default `publish.py` generates all three output types. Use one of the following flags to run only a specific segment:
+
+| Flag | Long form | Output |
+|------|-----------|--------|
+| `-m` | `--markdown` | Speaker and liturgist markdown files only |
+| `-w` | `--writer` | LibreOffice Writer `.odt` files only |
+| `-o` | `--openlp` | OpenLP `.osz` service files only |
+
+These flags are mutually exclusive. Omitting all three runs everything.
+
+```powershell
+# Markdown only
+python -m scripts.publish "Master 2025-11-23.md" -m
+
+# Writer files only
+python -m scripts.publish "Master 2025-11-23.md" -w
+
+# OpenLP only
+python -m scripts.publish "Master 2025-11-23.md" -o
+```
+
 ## Rollback Point
 
 Current milestone rollback tag:

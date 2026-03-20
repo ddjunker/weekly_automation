@@ -1048,14 +1048,18 @@ def build_markdown_and_writer_outputs(
     templates_dir: Path | None = None,
     strict: bool = False,
     verbose: bool = False,
-) -> Tuple[Dict[str, RenderResult], RenderResult, Dict[str, Path]]:
+    run_markdown: bool = True,
+    run_writer: bool = True,
+) -> Tuple[Dict[str, RenderResult], RenderResult | None, Dict[str, Path]]:
     """
-    Generate:
+    Generate any combination of:
       - Pastor/PastorC* speaker markdown files for both churches
-      - Liturgist markdown file (unchanged)
-      - Writer files for both churches
+      - Liturgist markdown file
+      - Writer (ODT) files for both churches
 
-    Returns (speaker_results, liturgist_result, writer_results)
+    run_markdown / run_writer can be set False to skip those outputs.
+    Returns (speaker_results, liturgist_result, writer_results);
+    omitted segments return empty dicts / None.
     """
     init_logging(verbose=verbose)
 
@@ -1077,81 +1081,85 @@ def build_markdown_and_writer_outputs(
         raise ValueError(f"No templates for communion type: {communion}")
 
     date_slug = _get_date_slug(master_md)
-    writer_info = build_librewriter_outputs(master_path=master_path, strict=strict, verbose=verbose)
-    year_dir = writer_info["year_dir"]
+
+    year_dir = None
+    if run_writer:
+        writer_info = build_librewriter_outputs(master_path=master_path, strict=strict, verbose=verbose)
+        year_dir = writer_info["year_dir"]
 
     speaker_results = {}
     writer_results = {}
 
     for church in ("elkton", "lb"):
-        md_key = f"{church}_md"
-        writer_key = f"{church}_writer"
-        md_template_name = templates[md_key]
-        writer_template_name = templates[writer_key]
+        md_template_name = templates[f"{church}_md"]
 
-        # Markdown
-        md_template_path = templates_dir / md_template_name
-        if not md_template_path.exists():
-            raise FileNotFoundError(f"Speaker template not found: {md_template_path}")
-        md_template = read_text(md_template_path)
-        lb_omit_overrides = {"reader": "nobody"} if church == "lb" else {}
-        md_rendered, md_warnings = render_markdown_template(
-            md_template,
+        if run_markdown:
+            md_template_path = templates_dir / md_template_name
+            if not md_template_path.exists():
+                raise FileNotFoundError(f"Speaker template not found: {md_template_path}")
+            md_template = read_text(md_template_path)
+            lb_omit_overrides = {"reader": "nobody"} if church == "lb" else {}
+            md_rendered, md_warnings = render_markdown_template(
+                md_template,
+                master_md,
+                strict=strict,
+                omit_overrides=lb_omit_overrides,
+            )
+            md_out = worship_dir / f"{Path(md_template_name).stem}--{date_slug}.md"
+            write_text(md_out, md_rendered)
+            speaker_results[church] = RenderResult(md_out, md_warnings)
+
+        if run_writer:
+            assert year_dir is not None
+            writer_template_name = templates[f"{church}_writer"]
+            writer_template_path = year_dir / writer_template_name
+            if not writer_template_path.exists():
+                logging.warning(f"Writer template not found: {writer_template_path}")
+                writer_results[church] = None
+            else:
+                writer_out = year_dir / f"{Path(writer_template_name).stem}--{date_slug}.odt"
+                with zipfile.ZipFile(writer_template_path, 'r') as zin:
+                    with zipfile.ZipFile(writer_out, 'w') as zout:
+                        for item in zin.infolist():
+                            data = zin.read(item.filename)
+                            if item.filename == 'content.xml':
+                                text = data.decode('utf-8')
+                                placeholders = extract_placeholders_used(text)
+                                lookup = build_master_lookup(master_md, placeholders)
+                                for name in placeholders:
+                                    if name not in lookup:
+                                        continue
+                                    value = lookup[name]
+                                    # In XML, "omit" and "delete" both collapse to empty string
+                                    # (line-deletion would destroy ODT XML structure)
+                                    if value.strip().lower() in ("omit", "delete"):
+                                        value = ""
+                                    value = _format_writer_placeholder_value(name, value)
+                                    text = text.replace(f"{{{name}}}", value)
+                                data = text.encode('utf-8')
+                            zout.writestr(item, data)
+                writer_results[church] = writer_out
+
+    liturgist_result = None
+    if run_markdown:
+        liturgist_template_path = templates_dir / DEFAULT_LITURGIST_TEMPLATE
+        if not liturgist_template_path.exists():
+            raise FileNotFoundError(f"Liturgist template not found: {liturgist_template_path}")
+        liturgist_template = read_text(liturgist_template_path)
+        liturgist_rendered, liturgist_warnings = render_markdown_template(
+            liturgist_template,
             master_md,
             strict=strict,
-            omit_overrides=lb_omit_overrides,
         )
-        md_out = worship_dir / f"{Path(md_template_name).stem}--{date_slug}.md"
-        write_text(md_out, md_rendered)
-        speaker_results[church] = RenderResult(md_out, md_warnings)
+        liturgist_out = _liturgist_output_path(worship_dir, date_slug)
+        write_text(liturgist_out, liturgist_rendered)
+        liturgist_result = RenderResult(liturgist_out, liturgist_warnings)
+        for w in liturgist_warnings:
+            logging.warning("[Liturgist] %s", w)
 
-        # Writer
-        writer_template_path = year_dir / writer_template_name
-        if not writer_template_path.exists():
-            logging.warning(f"Writer template not found: {writer_template_path}")
-            writer_results[church] = None
-        else:
-            # Replace placeholders in content.xml of the Writer template
-            writer_out = year_dir / f"{Path(writer_template_name).stem}--{date_slug}.odt"
-            with zipfile.ZipFile(writer_template_path, 'r') as zin:
-                with zipfile.ZipFile(writer_out, 'w') as zout:
-                    for item in zin.infolist():
-                        data = zin.read(item.filename)
-                        if item.filename == 'content.xml':
-                            # Replace placeholders in content.xml
-                            text = data.decode('utf-8')
-                            # Use the same placeholder replacement as markdown
-                            # Build lookup for placeholders used in content.xml
-                            placeholders = extract_placeholders_used(text)
-                            lookup = build_master_lookup(master_md, placeholders)
-                            for name in placeholders:
-                                value = lookup.get(name, "")
-                                value = _format_writer_placeholder_value(name, value)
-                                text = text.replace(f"{{{name}}}", value)
-                            data = text.encode('utf-8')
-                        zout.writestr(item, data)
-            writer_results[church] = writer_out
-
-    # Liturgist (unchanged)
-    liturgist_template_path = templates_dir / DEFAULT_LITURGIST_TEMPLATE
-    if not liturgist_template_path.exists():
-        raise FileNotFoundError(f"Liturgist template not found: {liturgist_template_path}")
-    liturgist_template = read_text(liturgist_template_path)
-    liturgist_rendered, liturgist_warnings = render_markdown_template(
-        liturgist_template,
-        master_md,
-        strict=strict,
-    )
-    liturgist_out = _liturgist_output_path(worship_dir, date_slug)
-    write_text(liturgist_out, liturgist_rendered)
-    liturgist_result = RenderResult(liturgist_out, liturgist_warnings)
-
-    # Log warnings
     for church, result in speaker_results.items():
         for w in result.warnings:
             logging.warning(f"[Speaker {church}] %s", w)
-    for w in liturgist_warnings:
-        logging.warning("[Liturgist] %s", w)
 
     return speaker_results, liturgist_result, writer_results
 
@@ -1173,6 +1181,22 @@ def parse_args():
         "--verbose",
         action="store_true",
         help="Enable verbose logging",
+    )
+    segment = parser.add_mutually_exclusive_group()
+    segment.add_argument(
+        "-o", "--openlp",
+        action="store_true",
+        help="Update OpenLP files only",
+    )
+    segment.add_argument(
+        "-w", "--writer",
+        action="store_true",
+        help="Update Writer (ODT) files only",
+    )
+    segment.add_argument(
+        "-m", "--markdown",
+        action="store_true",
+        help="Update markdown speaker/liturgist files only",
     )
     return parser.parse_args()
 
@@ -1321,11 +1345,87 @@ def _requires_single_newline_paragraphs(placeholder_name: str) -> bool:
     )
 
 
+# Characters that should stay attached to preceding punctuation (no line break inserted between)
+_CLOSING_QUOTES = "\u201d\u2019\"')]}"
+
+
+def _requires_reading_reflow(placeholder_name: str) -> bool:
+    """Return True for placeholders whose values should get punctuation-driven
+    line breaks for easier public/pastoral reading."""
+    return (
+        re.match(r"^ctw_xml_(elkton|lb)$", placeholder_name) is not None
+        or re.match(r"^scripture_ref_\d+_(elkton|lb)$", placeholder_name) is not None
+        or placeholder_name in {"offertory_source_text", "benediction_text", "benediction_text_alt"}
+    )
+
+
+# Liturgical cue labels whose colon should never trigger a line break.
+# Stored as (literal_string, placeholder_token) pairs.
+_LITURGICAL_CUES = [
+    ("Leader: ", "\x00LEAD\x00"),
+    ("People: ", "\x00PEOP\x00"),
+    ("L: ",      "\x00CL\x00"),
+    ("P: ",      "\x00CP\x00"),
+]
+
+
+def _reflow_for_public_reading(placeholder_name: str, value: str) -> str:
+    """
+    Apply punctuation-driven line breaks for pastoral/public reading scripts.
+
+    Rules (ported from md_clean.py):
+      - After .  ?  !  (optionally followed by a closing/grouping char) → blank line
+      - After :  ;  ,  (optionally followed by a closing/grouping char) → single line break
+      - Closing quotes and grouping chars )]}" stay attached to the preceding punctuation.
+      - Liturgical cue labels (Leader:, People:, L:, P:) are exempt from colon breaks.
+      - 3+ consecutive newlines collapsed to 2.
+
+    Applied per-paragraph (blank-line delimited) so multi-section blocks
+    (e.g. L:/P: exchanges) keep their structural separation.
+    """
+    if not _requires_reading_reflow(placeholder_name) or not value.strip():
+        return value
+
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", normalized) if p.strip()]
+
+    cq = re.escape(_CLOSING_QUOTES)
+    parts = []
+    for para in paragraphs:
+        t = re.sub(r"\s+", " ", para.strip())
+        # Remove stray spaces before punctuation
+        t = re.sub(r"\s+([,;:!?.])", lambda m: m.group(1), t)
+        # Protect liturgical cue labels so their colons are not broken
+        for orig, token in _LITURGICAL_CUES:
+            t = t.replace(orig, token)
+        # After . ? ! → blank line
+        t = re.sub(
+            rf"([.!?])\s*([{cq}]?)\s*",
+            lambda m: f"{m.group(1)}{m.group(2)}\n\n",
+            t,
+        )
+        # After : ; , → single line break
+        t = re.sub(
+            rf"([,;:])\s*([{cq}]?)\s*",
+            lambda m: f"{m.group(1)}{m.group(2)}\n",
+            t,
+        )
+        # Restore liturgical cue labels
+        for orig, token in _LITURGICAL_CUES:
+            t = t.replace(token, orig)
+        t = re.sub(r"\n{3,}", "\n\n", t).strip()
+        parts.append(t)
+
+    return "\n\n".join(parts)
+
+
 def _format_writer_placeholder_value(placeholder_name: str, value: str) -> str:
     """
-    Writer/ODT content.xml requires explicit line-break tags in text runs.
-    Apply only to placeholders where we intentionally retain paragraph breaks.
+    Writer/ODT content.xml requires XML-safe values.
+    - Escape '&' as '&amp;' for all values (content.xml is XML).
+    - Replace newlines with <text:line-break/> for multi-paragraph placeholders.
     """
+    value = value.replace("&", "&amp;")
     if not _requires_single_newline_paragraphs(placeholder_name):
         return value
     return value.replace("\n", "<text:line-break/>")
@@ -1426,6 +1526,7 @@ def render_markdown_template(
             continue
 
         value = _apply_delete_rule(value)
+        value = _reflow_for_public_reading(name, value)
 
         # Apply omit before actual replacement (needs the token still present),
         # unless this placeholder has an omit override (use the fallback instead).
@@ -1537,10 +1638,17 @@ if __name__ == "__main__":
     worship_dir = config.worship_dir
     master_path = worship_dir / args.master
 
+    # Determine which segments to run (default: all)
+    run_md = not (args.openlp or args.writer)
+    run_wr = not (args.openlp or args.markdown)
+    run_ol = not (args.markdown or args.writer)
+
     speaker_results, liturgist_result, writer_results = build_markdown_and_writer_outputs(
         master_path=master_path,
         strict=args.strict,
         verbose=args.verbose,
+        run_markdown=run_md,
+        run_writer=run_wr,
     )
 
     for church, result in speaker_results.items():
@@ -1550,11 +1658,12 @@ if __name__ == "__main__":
             for w in result.warnings:
                 print("   -", w)
 
-    print(f"Liturgist file: {liturgist_result.output_path.name}")
-    if liturgist_result.warnings:
-        print("\nLiturgist warnings:")
-        for w in liturgist_result.warnings:
-            print(" -", w)
+    if liturgist_result is not None:
+        print(f"Liturgist file: {liturgist_result.output_path.name}")
+        if liturgist_result.warnings:
+            print("\nLiturgist warnings:")
+            for w in liturgist_result.warnings:
+                print(" -", w)
 
     for church, writer_path in writer_results.items():
         if writer_path:
@@ -1562,11 +1671,11 @@ if __name__ == "__main__":
         else:
             print(f"Writer template for {church} not found.")
 
-    # Call OpenLP template copier and print results
-    openlp_results = copy_openlp_templates_for_each_church(
-        master_path=master_path,
-        strict=args.strict,
-        verbose=args.verbose,
-    )
-    for church, out_path in openlp_results.items():
-        print(f"OpenLP file for {church}: {out_path.name}")
+    if run_ol:
+        openlp_results = copy_openlp_templates_for_each_church(
+            master_path=master_path,
+            strict=args.strict,
+            verbose=args.verbose,
+        )
+        for church, out_path in openlp_results.items():
+            print(f"OpenLP file for {church}: {out_path.name}")

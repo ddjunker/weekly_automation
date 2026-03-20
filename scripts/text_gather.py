@@ -21,6 +21,7 @@ from scripts.utils.config import config, resolve_master_path
 from scripts.utils.placeholder import (
     append_below_placeholder,
     extract_block,
+    has_placeholder,
 )
 from scripts.utils.text_clean import clean_markdown, clean_text, xml_to_text
 from scripts.utils.openlp import (
@@ -214,6 +215,18 @@ def gather_custom_slides(md: str) -> str:
             aof_prefix = f"AoF p{aof_ref}"
             md = _append_slide_matches(md, church, f"aof_xml_{church}", aof_prefix, "AoF")
 
+            # Populate {aof_title} from the credits of the first Elkton match
+            if church == "elkton" and has_placeholder(md, "aof_title"):
+                prefix_clean = clean_text(aof_prefix).lower()
+                matches = [s for s in list_custom_slides("elkton")
+                           if clean_text(s["title"]).lower().startswith(prefix_clean)]
+                if matches:
+                    slide = load_custom_slide("elkton", matches[0]["uuid"])
+                    credits = slide["credits"] if slide else ""
+                    md = append_below_placeholder(md, "aof_title", credits if credits else f"[No credits for '{matches[0]['title']}']")
+                else:
+                    md = append_below_placeholder(md, "aof_title", f"[No AoF match found for '{aof_prefix}']")
+
     return md
 
 
@@ -242,6 +255,11 @@ def gather_scripture_text(md: str) -> str:
                 md = append_below_placeholder(md, f"{key}_{church}_book", book)
                 md = append_below_placeholder(md, f"{key}_{church}_chapter", chapter)
                 md = append_below_placeholder(md, f"{key}_{church}_verses", verses)
+                verse_start = re.match(r"\d+", verses)
+                md = append_below_placeholder(
+                    md, f"{key}_{church}_verses_start",
+                    verse_start.group(0) if verse_start else verses,
+                )
     return md
 
 
