@@ -106,16 +106,16 @@ def _get_slide_text_for_prefix(church: str, prefix: str) -> tuple[str, str] | No
     from scripts.utils.openlp import list_custom_slides, load_custom_slide
     from scripts.utils.text_clean import clean_text, xml_to_text
 
-    prefix_clean = clean_text(prefix).lower()
+    prefix_clean = clean_text(prefix).lower().replace(",", "")
     slides = list_custom_slides(church)
 
-    matches = [s for s in slides if clean_text(s["title"]).lower().startswith(prefix_clean)]
+    matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
     if not matches:
         return None
 
     # Prefer exact normalized title match if available.
     chosen = next(
-        (s for s in matches if clean_text(s["title"]).lower() == prefix_clean),
+        (s for s in matches if clean_text(s["title"]).lower().replace(",", "") == prefix_clean),
         matches[0],
     )
 
