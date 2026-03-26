@@ -80,6 +80,30 @@ python scripts/welcome.py
 python -m scripts.publish "Master 2025-11-23.md"
 ```
 
+### text_gather.py section flags
+
+By default `text_gather.py` runs all sections. Use one or more of the following flags to update only specific placeholders:
+
+| Flag | Updates |
+|------|---------|
+| `-s` | Scripture texts |
+| `-c` | Call to Worship (CtW) slides |
+| `-a` | Act of Faith (AoF) slides |
+| `-w` | Offertory and benediction (launches Firefox) |
+
+Flags may be combined. Omitting all flags runs everything.
+
+```powershell
+# Scripture only
+python scripts/text_gather.py --master "docs/Master 2025-11-23.md" -s
+
+# CtW and AoF only (no browser)
+python scripts/text_gather.py --master "docs/Master 2025-11-23.md" -c -a
+
+# Offertory and benediction only
+python scripts/text_gather.py --master "docs/Master 2025-11-23.md" -w
+```
+
 ### publish.py output switches
 
 By default `publish.py` generates all three output types. Use one of the following flags to run only a specific segment:

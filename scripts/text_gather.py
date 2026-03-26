@@ -174,10 +174,10 @@ def _append_slide_matches(md: str, church: str, placeholder_key: str, prefix: st
     Append all custom slides whose titles start with `prefix` (case-insensitive),
     inserting diagnostics into the markdown.
     """
-    prefix_clean = clean_text(prefix).lower()
+    prefix_clean = clean_text(prefix).lower().replace(",", "")
     slides = list_custom_slides(church)  # [{uuid:int,title:str}, ...]
 
-    matches = [s for s in slides if clean_text(s["title"]).lower().startswith(prefix_clean)]
+    matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
 
     if not matches:
         return append_below_placeholder(md, placeholder_key, f"[No {label} match found for '{prefix}' in {church}]")
@@ -199,19 +199,19 @@ def _append_slide_matches(md: str, church: str, placeholder_key: str, prefix: st
     return md
 
 
-def gather_custom_slides(md: str) -> str:
+def gather_custom_slides(md: str, run_ctw: bool = True, run_aof: bool = True) -> str:
     # Inputs from markdown
     ctw_ref = extract_clean(md, "ctw_ref")      # e.g. "Psalm 122:1-9"
     aof_ref = extract_clean(md, "aof_ref")      # e.g. "39top" (NOT scripture)
 
     for church in ("elkton", "lb"):
         # CtW titles are like: "CtW Psalm 122:1-9 [Flag]"
-        if ctw_ref:
+        if run_ctw and ctw_ref:
             ctw_prefix = f"CtW {ctw_ref}"
             md = _append_slide_matches(md, church, f"ctw_xml_{church}", ctw_prefix, "CtW")
 
         # AoF titles are like: "AoF p39top [Flag]"
-        if aof_ref:
+        if run_aof and aof_ref:
             aof_prefix = f"AoF p{aof_ref}"
             md = _append_slide_matches(md, church, f"aof_xml_{church}", aof_prefix, "AoF")
 
@@ -271,6 +271,10 @@ def main():
     parser.add_argument("--master", required=True)
     parser.add_argument("--open-output", action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("-s", action="store_true", help="Update scripture placeholders only")
+    parser.add_argument("-c", action="store_true", help="Update CtW placeholders only")
+    parser.add_argument("-a", action="store_true", help="Update AoF placeholders only")
+    parser.add_argument("-w", action="store_true", help="Update offertory and benediction placeholders only")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -278,12 +282,12 @@ def main():
         format="%(levelname)s: %(message)s"
     )
 
-
-
-    if check_firefox_running():
-        print("Closing existing Firefox instances...")
-        close_firefox_instances()
-
+    # If no section flags are given, run everything
+    run_all = not any([args.s, args.c, args.a, args.w])
+    run_s = run_all or args.s
+    run_c = run_all or args.c
+    run_a = run_all or args.a
+    run_w = run_all or args.w
 
     master_path = resolve_master_path(args.master)
     if not master_path.exists():
@@ -291,56 +295,59 @@ def main():
 
     md = master_path.read_text(encoding="utf-8")
 
-    with sync_playwright() as p:
-        context = p.firefox.launch_persistent_context(
-            user_data_dir=str(config.browser_profile),
-            headless=False,
-            firefox_user_prefs={
-                "dom.events.asyncClipboard.readText": True,
-                "dom.events.testing.asyncClipboard": True,
-                "permissions.default.clipboard-read": 1,
-                "permissions.default.clipboard-write": 1,
-            }
-        )
-        page = context.new_page()
+    if run_w:
+        if check_firefox_running():
+            print("Closing existing Firefox instances...")
+            close_firefox_instances()
 
-        # Extract URLs from Markdown
-        off1_url_raw = extract_block(md, "offertory_source")
-        off1_url = extract_clean(md, "offertory_source")
-        off2_url_raw = extract_block(md, "offertory_source_alt")
-        off2_url = extract_clean(md, "offertory_source_alt")
-        ben1_url = extract_clean(md, "benediction_source")
-        ben2_url = extract_clean(md, "benediction_source_alt")
+        with sync_playwright() as p:
+            context = p.firefox.launch_persistent_context(
+                user_data_dir=str(config.browser_profile),
+                headless=False,
+                firefox_user_prefs={
+                    "dom.events.asyncClipboard.readText": True,
+                    "dom.events.testing.asyncClipboard": True,
+                    "permissions.default.clipboard-read": 1,
+                    "permissions.default.clipboard-write": 1,
+                }
+            )
+            page = context.new_page()
 
-        def maybe_capture(page, label, url):
-            if not url or url.lower() == "na":
-                print(f"\n=== {label} ===\nSkipped (source='{url}')")
-                return ""
-            if not url.lower().startswith("http"):
-                print(f"\n=== {label} ===\nSkipped (invalid URL='{url}')")
-                return ""
-            return capture_clipboard(page, label, url)
+            off1_url = extract_clean(md, "offertory_source")
+            off2_url = extract_clean(md, "offertory_source_alt")
+            ben1_url = extract_clean(md, "benediction_source")
+            ben2_url = extract_clean(md, "benediction_source_alt")
 
-        off1 = maybe_capture(page, "Offertory Prayer (Primary)", off1_url)
-        off2 = maybe_capture(page, "Offertory Prayer (Alternate)", off2_url)
-        ben1  = maybe_capture(page, "Commission & Benediction", ben1_url)
-        ben2  = maybe_capture(page, "Commission & Benediction (Alt)", ben2_url)
+            def maybe_capture(page, label, url):
+                if not url or url.lower() == "na":
+                    print(f"\n=== {label} ===\nSkipped (source='{url}')")
+                    return ""
+                if not url.lower().startswith("http"):
+                    print(f"\n=== {label} ===\nSkipped (invalid URL='{url}')")
+                    return ""
+                return capture_clipboard(page, label, url)
 
-        context.close()
+            off1 = maybe_capture(page, "Offertory Prayer (Primary)", off1_url)
+            off2 = maybe_capture(page, "Offertory Prayer (Alternate)", off2_url)
+            ben1 = maybe_capture(page, "Commission & Benediction", ben1_url)
+            ben2 = maybe_capture(page, "Commission & Benediction (Alt)", ben2_url)
 
-    # Insert into markdown
-    # Offertory
-    if off1:
-        md = append_below_placeholder(md, "offertory_source_text", off1)
-    if off2:
-        md = append_below_placeholder(md, "offertory_source_alt_text", off2)
-    # Benediction
-    if ben1:
-        md = append_below_placeholder(md, "benediction_text", ben1)
-    if ben2:
-        md = append_below_placeholder(md, "benediction_text_alt", ben2)
-    md = gather_scripture_text(md)
-    md = gather_custom_slides(md)
+            context.close()
+
+        if off1:
+            md = append_below_placeholder(md, "offertory_source_text", off1)
+        if off2:
+            md = append_below_placeholder(md, "offertory_source_alt_text", off2)
+        if ben1:
+            md = append_below_placeholder(md, "benediction_text", ben1)
+        if ben2:
+            md = append_below_placeholder(md, "benediction_text_alt", ben2)
+
+    if run_s:
+        md = gather_scripture_text(md)
+
+    if run_c or run_a:
+        md = gather_custom_slides(md, run_ctw=run_c, run_aof=run_a)
 
     master_path.write_text(md, encoding="utf-8")
     print(f"\nUpdated: {master_path}\n")
