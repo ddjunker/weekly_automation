@@ -1,5 +1,7 @@
-import yaml
-import regex as re
+try:
+    import regex as re
+except ImportError:
+    import re  # type: ignore[no-redef]
 from .text_clean import clean_text
 
 
@@ -49,6 +51,7 @@ def extract_serviceinfo_block(md: str) -> tuple[str | None, dict]:
     Extract the serviceinfo fenced code block and parse its YAML content.
     Returns (raw_block, parsed_dict). If not found, returns (None, {}).
     """
+    import yaml
     match = re.search(r'```serviceinfo\s*([\s\S]+?)```', md)
     if not match:
         return None, {}
@@ -67,6 +70,7 @@ def update_serviceinfo_block(md: str, updates: dict) -> str:
     Update the serviceinfo block in md with the given updates dict.
     Returns the new markdown text.
     """
+    import yaml
     old_block, data = extract_serviceinfo_block(md)
     data.update(updates)
     new_yaml = yaml.dump(data, sort_keys=False, allow_unicode=True)

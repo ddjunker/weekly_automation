@@ -24,9 +24,10 @@ try:
     from scripts.utils.config import config
     from scripts.utils.file_io import read_text
     from scripts.utils.logging_utils import init_logging
-except ModuleNotFoundError:
+except (ImportError, ModuleNotFoundError):
     # Fallback for embedded runtimes (e.g., GIMP Python) where importing
-    # scripts.utils package-level __init__ may fail due to optional deps.
+    # scripts.utils package-level __init__ may fail due to optional deps
+    # (e.g., sqlite3 DLL unavailable, yaml/regex not installed).
     utils_dir = Path(__file__).resolve().parent / "utils"
     sys.path.insert(0, str(utils_dir))
     from config import config  # type: ignore[import-not-found]
@@ -209,6 +210,17 @@ def _resolve_master_path(master_arg: str) -> Path:
     return (worship / candidate).resolve()
 
 
+
+def _extract_block(md: str, key: str) -> str:
+    """Extract value after =={key}== (or bare {key}). Uses only stdlib re."""
+    pattern = rf"\{{{re.escape(key)}\}}=*\s*(.*?)(?=\n\s*=*\{{|\Z)"
+    m = re.search(pattern, md, flags=re.S)
+    if not m:
+        return ""
+    text = re.sub(r"%%[\s\S]*?%%", "", m.group(1))  # strip Obsidian comments
+    return text.strip()
+
+
 def _load_welcome_fields(master_path: Path) -> tuple[str, str]:
     if not master_path.exists():
         raise FileNotFoundError(f"Master markdown not found: {master_path}")
@@ -221,17 +233,6 @@ def _load_welcome_fields(master_path: Path) -> tuple[str, str]:
         raise ValueError("{cal_church} is missing in Master markdown")
     return cal_date, cal_church
 
-
-def _extract_block(master_md: str, key: str) -> str:
-    """
-    Lightweight placeholder extractor for {key} blocks.
-    Compatible with Master.md structure used by weekly_automation.
-    """
-    pattern = re.compile(
-        rf"(?ms)^\{{{re.escape(key)}\}}\s*\n(.*?)(?=^\{{[A-Za-z0-9_]+\}}\s*$|\Z)"
-    )
-    m = pattern.search(master_md)
-    return m.group(1).strip() if m else ""
 
 
 def _set_text_layer_content(layer: Any, value: str, layer_name: str) -> None:
