@@ -1134,8 +1134,12 @@ def build_markdown_and_writer_outputs(
                                     # (line-deletion would destroy ODT XML structure)
                                     if value.strip().lower() in ("omit", "delete"):
                                         value = ""
-                                    value = _format_writer_placeholder_value(name, value)
-                                    text = text.replace(f"{{{name}}}", value)
+                                    if name in _PARA_SPLIT_PLACEHOLDERS:
+                                        value = value.replace("&", "&amp;")
+                                        text = _expand_writer_paragraph(text, name, value)
+                                    else:
+                                        value = _format_writer_placeholder_value(name, value)
+                                        text = text.replace(f"{{{name}}}", value)
                                 data = text.encode('utf-8')
                             zout.writestr(item, data)
                 writer_results[church] = writer_out
@@ -1417,6 +1421,40 @@ def _reflow_for_public_reading(placeholder_name: str, value: str) -> str:
         parts.append(t)
 
     return "\n\n".join(parts)
+
+
+# Placeholders whose lines should each become a separate <text:p> element rather
+# than a single paragraph with <text:line-break/> tags between them.
+_PARA_SPLIT_PLACEHOLDERS = frozenset({
+    "ctw_xml_elkton",
+    "ctw_xml_lb",
+    "benediction_text",
+    "benediction_text_alt",
+    "announce_detail_elkton",
+    "announce_detail_lb",
+})
+
+
+def _expand_writer_paragraph(text: str, name: str, value: str) -> str:
+    """Replace {name} with multiple <text:p> elements, one per non-empty line.
+
+    Finds the surrounding <text:p ...> opening tag in *text* and replicates it
+    for each line of *value*.  Any trailing XML between the placeholder and the
+    closing </text:p> (e.g. a stray <text:tab/>) is discarded.
+    """
+    pattern = r'(<text:p[^>]*>)\{' + re.escape(name) + r'\}.*?(</text:p>)'
+    m = re.search(pattern, text, re.DOTALL)
+    if not m:
+        # Placeholder not found as a standalone paragraph — fall back to simple insert.
+        return text.replace("{" + name + "}", value)
+    opening_tag = m.group(1)
+    closing_tag = m.group(2)
+    lines = [ln for ln in value.split("\n") if ln.strip()]
+    if not lines:
+        replacement = opening_tag + closing_tag
+    else:
+        replacement = "".join(opening_tag + ln + closing_tag for ln in lines)
+    return text[: m.start()] + replacement + text[m.end() :]
 
 
 def _format_writer_placeholder_value(placeholder_name: str, value: str) -> str:
