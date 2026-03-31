@@ -38,7 +38,7 @@ from scripts.utils.placeholder import (
     extract_block,
 )
 from scripts.utils.text_clean import clean_markdown, clean_text, xml_to_text
-from scripts.utils.openlp import build_song_index, load_song
+from scripts.utils.openlp import build_song_index, load_song, song_xml_to_labeled_markdown
 
 
 
@@ -221,12 +221,12 @@ def resolve_openlp_song(
     if not lyrics_xml:
         return f"Lyrics not found for UUID {uuid}"
 
-    text = xml_to_text(lyrics_xml)
-
-    # We can’t surgically subset verses from XML here, so just annotate.
-    if parsed.verses:
-        verse_note = "Verses: " + ", ".join(map(str, parsed.verses))
-        text = f"{verse_note}\n\n{text}"
+    text = song_xml_to_labeled_markdown(lyrics_xml, verses_filter=parsed.verses)
+    if text is None:
+        text = xml_to_text(lyrics_xml)
+        if parsed.verses:
+            verse_note = "Verses: " + ", ".join(map(str, parsed.verses))
+            text = f"{verse_note}\n\n{text}"
 
     return text.strip()
 
@@ -235,103 +235,65 @@ def resolve_openlp_song(
 # Processing the Master file
 # =====================================================================
 
+_OPENLP_ERROR_REASONS = {
+    "No valid song id":      "invalid song ID",
+    "Invalid hymnal prefix": "invalid hymnal prefix",
+    "Hymn not found":        "not in hymnal index",
+    "Lyrics not found":      "missing lyrics XML",
+}
+
+
+def _gather_song_text(church: str, index: dict, title: str, id_raw: str | None) -> str:
+    """
+    Route a single song slot to hymnal or praise-song lookup.
+
+    If id_raw parses as a hymnal reference (r/b/k + digits), look it up in
+    the OpenLP DB and return labeled markdown.  Otherwise treat the slot as a
+    praise song and fetch CCLI plain-text lyrics by title.
+
+    Always returns a non-empty string; error strings begin with "[Missing".
+    """
+    if parse_song_id(id_raw or "", title_for_log=title):
+        result = resolve_openlp_song(church, index, title, id_raw)
+        for prefix, reason in _OPENLP_ERROR_REASONS.items():
+            if result.startswith(prefix):
+                return f"[Missing song for {church}: {title} — {reason}]"
+        return result
+
+    # Praise song: look up CCLI plain-text lyrics by title.
+    lyr = get_ccli_lyrics(clean_text(title))
+    if lyr:
+        return lyr
+    return f"[Missing song for {church}: {title} — CCLI lyrics not found]"
+
+
 def process_master(md: str, elk_index: dict, lb_index: dict) -> str:
     """
-    Fill in song text/XML in the Master markdown using:
-      • CCLI plaintext for opening songs
-      • OpenLP DB + index for middle and closing songs
+    Fill in song text in the Master markdown for all three song slots.
+
+    Each slot is routed automatically: a hymnal ID (r/b/k + digits) triggers
+    the OpenLP DB path with labeled verse/chorus headings; anything else
+    (artist name, blank) triggers the CCLI plain-text path.
     """
+    for slot in ("opening", "middle", "closing"):
+        for church, index in (("elkton", elk_index), ("lb", lb_index)):
+            title_key = f"song_{slot}_title_{church}"
+            id_key    = f"song_{slot}_id_{church}"
+            text_key  = f"song_{slot}_text_{church}"
 
-    # ----------------------
-    # Opening songs (CCLI)
-    # ----------------------
-    for church in ("elkton", "lb"):
-        title_key = f"song_opening_title_{church}"
-        text_key = f"song_opening_text_{church}"
+            title = extract_block(md, title_key)
+            sid   = extract_block(md, id_key)
 
-        title = extract_block(md, title_key)
-        title_clean = clean_text(title)
+            if not title and not sid:
+                continue
 
-        if title_clean:
-            lyr = get_ccli_lyrics(title_clean)
-            if lyr:
-                md = append_below_placeholder(md, text_key, lyr)
-            else:
-                md = append_missing(
-                    md,
-                    text_key,
-                    title_clean,
-                    church,
-                    "CCLI lyrics not found",
-                )
+            # LB closing special case: congregational choice → skip lookup.
+            if slot == "closing" and church == "lb" and title.lower() == "congregational choice":
+                continue
 
-    # ----------------------
-    # Middle songs (OpenLP)
-    # ----------------------
-    for church, cmap in (("elkton", elk_index), ("lb", lb_index)):
-        title_key = f"song_middle_title_{church}"
-        id_key = f"song_middle_id_{church}"
-        text_key = f"song_middle_text_{church}"
-
-        title = extract_block(md, title_key)
-        sid = extract_block(md, id_key)
-
-        if not title and not sid:
-            continue
-
-        text = resolve_openlp_song(church, cmap, title, sid)
-
-        # Error categorization (string-prefix-based)
-        if text.startswith("No valid song id"):
-            md = append_missing(md, text_key, title, church, "invalid song ID")
-            continue
-        if text.startswith("Invalid hymnal prefix"):
-            md = append_missing(md, text_key, title, church, "invalid hymnal prefix")
-            continue
-        if text.startswith("Hymn not found"):
-            md = append_missing(md, text_key, title, church, "not in hymnal index")
-            continue
-        if text.startswith("Lyrics not found"):
-            md = append_missing(md, text_key, title, church, "missing lyrics XML")
-            continue
-
-        if text:
-            md = append_below_placeholder(md, text_key, text)
-
-    # ----------------------
-    # Closing songs (OpenLP)
-    # ----------------------
-    for church, cmap in (("elkton", elk_index), ("lb", lb_index)):
-        title_key = f"song_closing_title_{church}"
-        id_key = f"song_closing_id_{church}"
-        text_key = f"song_closing_text_{church}"
-
-        title = extract_block(md, title_key)
-        if not title:
-            continue
-
-        # LB special case: Congregational choice → we skip DB lookup.
-        if church == "lb" and title.lower().startswith("congregational choice"):
-            continue
-
-        sid = extract_block(md, id_key)
-        text = resolve_openlp_song(church, cmap, title, sid)
-
-        if text.startswith("No valid song id"):
-            md = append_missing(md, text_key, title, church, "invalid song ID")
-            continue
-        if text.startswith("Invalid hymnal prefix"):
-            md = append_missing(md, text_key, title, church, "invalid hymnal prefix")
-            continue
-        if text.startswith("Hymn not found"):
-            md = append_missing(md, text_key, title, church, "not in hymnal index")
-            continue
-        if text.startswith("Lyrics not found"):
-            md = append_missing(md, text_key, title, church, "missing lyrics XML")
-            continue
-
-        if text:
-            md = append_below_placeholder(md, text_key, text)
+            text = _gather_song_text(church, index, title, sid)
+            if text:
+                md = append_below_placeholder(md, text_key, text)
 
     return md
 

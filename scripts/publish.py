@@ -412,6 +412,7 @@ def _replace_song_item_by_marker(
     new_title: str,
     lyrics_text: str,
     *,
+    slides: list[dict] | None = None,
     authors: str = "",
     copyright_text: str = "",
     ccli_number: str = "",
@@ -428,19 +429,20 @@ def _replace_song_item_by_marker(
     if not marker:
         return False
 
-    # Split into slide-ish chunks on blank lines.
-    normalized = (lyrics_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-    parts = [p.strip() for p in re.split(r"\n\s*\n+", normalized) if p.strip()]
-    if not parts:
-        parts = [normalized] if normalized else []
-
-    slides = []
-    for idx, chunk in enumerate(parts, start=1):
-        slides.append({
-            "title": (chunk[:30] or new_title[:30] or "Song")[:30],
-            "raw_slide": chunk,
-            "verseTag": f"V{idx}",
-        })
+    if slides is None:
+        # Fall back: split plain-text lyrics on blank lines, label V1 V2 ...
+        normalized = (lyrics_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        parts = [p.strip() for p in re.split(r"\n\s*\n+", normalized) if p.strip()]
+        if not parts:
+            parts = [normalized] if normalized else []
+        slides = [
+            {
+                "title": (chunk[:30] or new_title[:30] or "Song")[:30],
+                "raw_slide": chunk,
+                "verseTag": f"V{idx}",
+            }
+            for idx, chunk in enumerate(parts, start=1)
+        ]
 
     for item in service_data:
         svc = item.get("serviceitem")
@@ -909,13 +911,17 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
             warn_song_missing(song_marker, f"UUID {uuid} has no lyrics")
             return False
 
-        lyrics_text = xml_to_text(lyrics_xml)
+        from scripts.utils.openlp import parse_song_xml
+        verse_order = str(song.get("verse_order") or "").strip()
+        pre_slides = parse_song_xml(lyrics_xml, verse_order)
+        lyrics_text = "" if pre_slides is not None else xml_to_text(lyrics_xml)
         new_title = str(song.get("title") or title or f"{hymnal} {entry}").strip()
         return _replace_song_item_by_marker(
             service_data,
             song_marker,
             new_title,
-            str(lyrics_text).strip(),
+            lyrics_text,
+            slides=pre_slides,
             authors=str(song.get("authors") or "").strip(),
             copyright_text=str(song.get("copyright") or "").strip(),
             ccli_number=str(song.get("ccli_number") or "").strip(),

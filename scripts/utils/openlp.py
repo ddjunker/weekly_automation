@@ -131,7 +131,7 @@ def connect_sqlite(path: Path) -> sqlite3.Connection:
 def load_song(church: str, uuid: int) -> dict | None:
     """
     Return a dict with core song data and footer metadata used by OpenLP services:
-    {id, title, lyrics, hymnal, entry, authors, copyright, ccli_number}
+    {id, title, lyrics, verse_order, hymnal, entry, authors, copyright, ccli_number}
     """
     path = get_songs_db(church)
     conn = connect_sqlite(path)
@@ -141,6 +141,7 @@ def load_song(church: str, uuid: int) -> dict | None:
         SELECT s.id,
                s.title,
                s.lyrics,
+               s.verse_order,
                s.copyright,
                s.ccli_number,
                s.search_title,
@@ -157,7 +158,7 @@ def load_song(church: str, uuid: int) -> dict | None:
         LEFT JOIN authors_songs als ON s.id = als.song_id
         LEFT JOIN authors a ON als.author_id = a.id
         WHERE s.id = ?
-        GROUP BY s.id, s.title, s.lyrics, s.copyright, s.ccli_number, s.search_title, s.alternate_title, sb.name, ssb.entry
+        GROUP BY s.id, s.title, s.lyrics, s.verse_order, s.copyright, s.ccli_number, s.search_title, s.alternate_title, sb.name, ssb.entry
     """, (uuid,))
 
     row = cur.fetchone()
@@ -171,6 +172,7 @@ def load_song(church: str, uuid: int) -> dict | None:
         "search_title": row["search_title"] or "",
         "alternate_title": row["alternate_title"] or "",
         "lyrics": full_scrub(row["lyrics"] or ""),
+        "verse_order": (row["verse_order"] or "").strip(),
         "hymnal": row["hymnal"],
         "entry": row["entry"],
         "authors": clean_text(row["authors"] or ""),
@@ -189,6 +191,145 @@ def load_song_by_hymnal_entry(church: str, hymnal: str, entry: str):
     if not uuid:
         return None
     return load_song(church, uuid)
+
+
+_SONG_XML_TYPE_MAP = {
+    "verse": "v", "chorus": "c", "bridge": "b",
+    "prechorus": "p", "pre-chorus": "p", "ending": "e",
+    "intro": "i", "other": "o",
+}
+
+_SONG_XML_LABEL_NAMES = {
+    "v": "verse", "c": "chorus", "b": "bridge",
+    "p": "pre-chorus", "e": "ending", "i": "intro",
+}
+
+
+def _parse_song_sections(lyrics_xml: str) -> dict[str, str] | None:
+    """
+    Parse OpenLyrics-style XML and return an ordered dict of section_key → text.
+    Keys are like "v1", "c1", "b2" in XML declaration order.
+    Returns None on parse failure or if no sections found.
+    """
+    import xml.etree.ElementTree as ET
+
+    if not lyrics_xml:
+        return None
+
+    try:
+        xml_str = re.sub(r"<\?xml[^?]*\?>\s*", "", lyrics_xml, count=1).strip()
+        root = ET.fromstring(xml_str)
+    except ET.ParseError:
+        return None
+
+    lyrics_el = root.find("lyrics")
+    if lyrics_el is None:
+        return None
+
+    sections: dict[str, str] = {}
+    for verse_el in lyrics_el.findall("verse"):
+        vtype = (verse_el.get("type") or "v").strip().lower()
+        vlabel = (verse_el.get("label") or "1").strip()
+        vtype = _SONG_XML_TYPE_MAP.get(vtype, vtype)
+        key = f"{vtype}{vlabel}"
+        text = (verse_el.text or "").strip()
+        if text and key not in sections:
+            sections[key] = text
+
+    return sections if sections else None
+
+
+def parse_song_xml(lyrics_xml: str, verse_order: str | None) -> list[dict] | None:
+    """
+    Parse OpenLyrics-style song XML and return slides ordered by verse_order.
+
+    Reads <verse type="..." label="..."> elements (and long-form types like
+    "Verse"/"Chorus") and maps them to section keys like "v1", "c1", "b1".
+    Applies verse_order (space-separated, e.g. "c1 v1 c1 v2") to produce
+    the slide list with proper repetition and verseTag values.
+
+    Returns list of {title, raw_slide, verseTag} or None if parsing fails
+    (caller should fall back to xml_to_text + blank-line split).
+    """
+    sections = _parse_song_sections(lyrics_xml)
+    if sections is None:
+        return None
+
+    order = (verse_order or "").strip().split() if verse_order else list(sections.keys())
+    if not order:
+        order = list(sections.keys())
+
+    slides = []
+    for key in order:
+        text = sections.get(key.lower())
+        if not text:
+            continue
+        verse_tag = key[0].upper() + key[1:]  # "c1" → "C1", "v1" → "V1"
+        first_line = text.split("\n")[0].strip()
+        slides.append({
+            "title": (first_line or text)[:30],
+            "raw_slide": text,
+            "verseTag": verse_tag,
+        })
+
+    return slides if slides else None
+
+
+def song_xml_to_labeled_markdown(
+    lyrics_xml: str,
+    verses_filter: list[int] | None = None,
+) -> str | None:
+    """
+    Parse OpenLyrics-style song XML and return labeled markdown text.
+
+    Each section gets a ### heading:
+        v1  → ### verse 1
+        v2  → ### verse 2
+        c1  → ### chorus
+        c2  → ### chorus 2
+        b1  → ### bridge
+        p1  → ### pre-chorus
+
+    Sections are output in XML declaration order (each unique section once).
+    If verses_filter is given (e.g. [1, 3]), only verse sections with those
+    numbers are included; non-verse sections (chorus, bridge, etc.) are always
+    included.
+
+    Returns None on parse failure (caller should fall back to xml_to_text).
+    """
+    sections = _parse_song_sections(lyrics_xml)
+    if sections is None:
+        return None
+
+    # Count how many distinct labels exist per type to decide if we need numbers
+    type_counts: dict[str, int] = {}
+    for key in sections:
+        vtype = key[0]
+        type_counts[vtype] = type_counts.get(vtype, 0) + 1
+
+    parts: list[str] = []
+    for key, text in sections.items():
+        vtype = key[0]
+        vlabel = key[1:]
+
+        if vtype == "v":
+            try:
+                verse_num = int(vlabel)
+            except ValueError:
+                verse_num = None
+            if verses_filter is not None and verse_num not in verses_filter:
+                continue
+            heading = f"### verse {vlabel}"
+        else:
+            label_name = _SONG_XML_LABEL_NAMES.get(vtype, vtype)
+            if type_counts.get(vtype, 1) > 1:
+                heading = f"### {label_name} {vlabel}"
+            else:
+                heading = f"### {label_name}"
+
+        parts.append(f"{heading}\n{text}")
+
+    return "\n\n".join(parts) if parts else None
 
 
 def build_song_index(church: str) -> dict:
@@ -311,12 +452,17 @@ def get_scripture_text(church: str, passage: str) -> str:
 
     book, remainder = m.group(1).strip(), m.group(2).strip()
 
-    # Get book_id
-    cur.execute("SELECT id FROM book WHERE name LIKE ?", (book,))
+    # Get book_id — try exact match first, then starts-with fallback (e.g. "Acts of the Apostles")
+    cur.execute("SELECT id FROM book WHERE TRIM(name) LIKE TRIM(?)", (book,))
     row = cur.fetchone()
     if not row:
+        cur.execute("SELECT id, name FROM book WHERE TRIM(name) LIKE ? ORDER BY name", (book + "%",))
+        rows = cur.fetchall()
+        if len(rows) == 1:
+            row = rows[0]
+    if not row:
         conn.close()
-        raise ValueError(f"Book '{book}' not found in DB.")
+        raise ValueError(f"Book '{book}' not found in {db_path.name}.")
     book_id = row["id"]
 
     verses_out = []
