@@ -169,15 +169,19 @@ def normalize_reference(ref: str):
 
 # ---------------- CtW + AoF Retrieval ----------------
 
-def _append_slide_matches(md: str, church: str, placeholder_key: str, prefix: str, label: str) -> str:
+def _append_slide_matches(md: str, church: str, placeholder_key: str, prefix: str, label: str, exact: bool = False) -> str:
     """
     Append all custom slides whose titles start with `prefix` (case-insensitive),
     inserting diagnostics into the markdown.
+    When exact=True, only slides whose normalized title equals prefix are matched.
     """
     prefix_clean = clean_text(prefix).lower().replace(",", "")
     slides = list_custom_slides(church)  # [{uuid:int,title:str}, ...]
 
-    matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
+    if exact:
+        matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "") == prefix_clean]
+    else:
+        matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
 
     if not matches:
         return append_below_placeholder(md, placeholder_key, f"[No {label} match found for '{prefix}' in {church}]")
@@ -206,9 +210,10 @@ def gather_custom_slides(md: str, run_ctw: bool = True, run_aof: bool = True) ->
 
     for church in ("elkton", "lb"):
         # CtW titles are like: "CtW Psalm 122:1-9 [Flag]"
-        if run_ctw and ctw_ref:
-            ctw_prefix = f"CtW {ctw_ref}"
-            md = _append_slide_matches(md, church, f"ctw_xml_{church}", ctw_prefix, "CtW")
+        if run_ctw:
+            ctw_ref_church = extract_clean(md, f"ctw_ref_{church}")
+            if ctw_ref_church:
+                md = _append_slide_matches(md, church, f"ctw_xml_{church}", ctw_ref_church, "CtW", exact=True)
 
         # AoF titles are like: "AoF p39top [Flag]"
         if run_aof and aof_ref:
@@ -293,16 +298,29 @@ def _check_custom_slides(md: str, check_ctw: bool = True, check_aof: bool = True
 
     for church in ("elkton", "lb"):
         if check_ctw and ctw_ref:
-            prefix = f"CtW {ctw_ref}"
-            prefix_clean = clean_text(prefix).lower().replace(",", "")
-            matches = [s for s in list_custom_slides(church)
-                       if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
+            ctw_ref_church = extract_clean(md, f"ctw_ref_{church}")
+            if ctw_ref_church:
+                title_clean = clean_text(ctw_ref_church).lower().replace(",", "")
+                matches = [s for s in list_custom_slides(church)
+                           if clean_text(s["title"]).lower().replace(",", "") == title_clean]
+                item_label = ctw_ref_church
+                status_label = "exact"
+            else:
+                prefix = f"CtW {ctw_ref}"
+                prefix_clean = clean_text(prefix).lower().replace(",", "")
+                matches = [s for s in list_custom_slides(church)
+                           if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
+                item_label = prefix
+                status_label = None
             if not matches:
-                results.append({"section": "CtW", "item": prefix, "church": church,
+                results.append({"section": "CtW", "item": item_label, "church": church,
                                 "status": "MISSING", "detail": "No match found"})
             else:
-                status = "found" if len(matches) == 1 else f"MULTIPLE ({len(matches)})"
-                results.append({"section": "CtW", "item": prefix, "church": church,
+                if status_label == "exact":
+                    status = "found (exact)"
+                else:
+                    status = "found" if len(matches) == 1 else f"MULTIPLE ({len(matches)})"
+                results.append({"section": "CtW", "item": item_label, "church": church,
                                 "status": status, "detail": "; ".join(s["raw_title"] for s in matches)})
 
         if check_aof and aof_ref:

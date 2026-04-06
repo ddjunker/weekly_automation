@@ -80,8 +80,21 @@ python scripts/welcome.py
 python -m scripts.publish "Master 2025-11-23.md"
 ```
 
-both gather scripts now have a --dry-run flag that does misssing/duplicate checks of locally stored data and writes to a separate markdown file
+Both gather scripts have a `--dry-run` flag that checks for missing or duplicate data against locally stored databases and writes results to a separate markdown report file.
 
+### Call to Worship — per-church exact matching
+
+Some Psalms have multiple CtW slide variants in OpenLP (e.g., `CtW Psalm 23:1-6` and `CtW Psalm 23:1-6 UMH 128`). To resolve ambiguity:
+
+1. Add two blank placeholders to your Obsidian master template (once):
+   ```
+   {ctw_ref_elkton}
+   {ctw_ref_lb}
+   ```
+2. Run `--dry-run -c`. If the report shows `MULTIPLE` for a church, copy the exact slide title from the Detail column into the appropriate placeholder.
+3. Run the real gather (`-c`) and publish — both use exact matching on those values. If a per-church placeholder is blank, CtW is skipped for that church.
+
+`{ctw_ref}` (the lectionary reference) is still used by the dry run to enumerate candidates. The per-church placeholders hold the full OpenLP slide title selected for that week.
 
 ### text_gather.py section flags
 

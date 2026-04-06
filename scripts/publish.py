@@ -99,9 +99,10 @@ def _write_service_data_to_osz(
     tmp_path.replace(osz_path)
 
 
-def _get_slide_text_for_prefix(church: str, prefix: str) -> tuple[str, str] | None:
+def _get_slide_text_for_prefix(church: str, prefix: str, exact: bool = False) -> tuple[str, str] | None:
     """
     Find a custom slide whose title starts with prefix and return (title, cleaned_text).
+    When exact=True, only a slide whose normalized title equals prefix is accepted.
     """
     from scripts.utils.openlp import list_custom_slides, load_custom_slide
     from scripts.utils.text_clean import clean_text
@@ -109,15 +110,21 @@ def _get_slide_text_for_prefix(church: str, prefix: str) -> tuple[str, str] | No
     prefix_clean = clean_text(prefix).lower().replace(",", "")
     slides = list_custom_slides(church)
 
-    matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
-    if not matches:
-        return None
+    if exact:
+        matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "") == prefix_clean]
+        chosen = matches[0] if matches else None
+    else:
+        matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
+        if not matches:
+            return None
+        # Prefer exact normalized title match if available.
+        chosen = next(
+            (s for s in matches if clean_text(s["title"]).lower().replace(",", "") == prefix_clean),
+            matches[0],
+        )
 
-    # Prefer exact normalized title match if available.
-    chosen = next(
-        (s for s in matches if clean_text(s["title"]).lower().replace(",", "") == prefix_clean),
-        matches[0],
-    )
+    if not chosen:
+        return None
 
     slide = load_custom_slide(church, chosen["uuid"])
     if not slide or not isinstance(slide.get("raw_text"), str) or not slide["raw_text"].strip():
@@ -700,6 +707,7 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
     from scripts.utils.openlp import get_scripture_text
 
     ctw_ref = extract_block(master_md, "ctw_ref").strip()
+    ctw_ref_church = extract_block(master_md, f"ctw_ref_{church}").strip()
     aof_ref = extract_block(master_md, "aof_ref").strip()
     scripture_ref_1 = extract_block(master_md, "scripture_ref_1").strip()
     scripture_ref_2 = extract_block(master_md, "scripture_ref_2").strip()
@@ -719,8 +727,8 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
     service_data, payloads, infos = _load_service_data_from_osz(osz_path)
     changed = False
 
-    if ctw_ref:
-        ctw = _get_slide_text_for_prefix(church, f"CtW {ctw_ref}")
+    if ctw_ref_church:
+        ctw = _get_slide_text_for_prefix(church, ctw_ref_church, exact=True)
         if ctw:
             ctw_title, ctw_text = ctw
             if _replace_custom_item_text(service_data, "ctw_holder", ctw_title, ctw_text):
@@ -728,7 +736,7 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
             else:
                 logging.warning("CtW marker slide not found in %s service template", church)
         else:
-            logging.warning("No CtW custom slide matched for %s: %s", church, ctw_ref)
+            logging.warning("No CtW custom slide matched for %s: %s", church, ctw_ref_church)
 
     if church == "elkton" and aof_ref:
         aof = _get_slide_text_for_prefix(church, f"AoF p{aof_ref}")
