@@ -74,13 +74,30 @@ OPENLP_PATH_LB = r"PATH_TO_LB_OPENLP"
 Example workflow:
 
 ```powershell
+# 1. Pre-publication checks (read-only, writes report files)
+python scripts/prepub.py --master "docs/Master 2025-11-23.md"
+
+# 2. Gather text and music into the master file
 python scripts/text_gather.py --master "docs/Master 2025-11-23.md"
 python scripts/music_gather.py --master "docs/Master 2025-11-23.md"
+
+# 3. Export welcome slides
 python scripts/welcome.py
+
+# 4. Publish all outputs
 python -m scripts.publish "Master 2025-11-23.md"
 ```
 
-Both gather scripts have a `--dry-run` flag that checks for missing or duplicate data against locally stored databases and writes results to a separate markdown report file.
+### prepub.py — pre-publication checks
+
+Validates all resources against local databases without writing to the master file. Run this first to catch missing or ambiguous entries before gathering.
+
+| Flag | Checks |
+|------|--------|
+| `-t` | Scripture texts, CtW and AoF custom slides |
+| `-m` | Songs (hymnal DB and CCLI lyrics) |
+
+Omitting both flags runs all checks. Writes a `_text_check.md` and/or `_music_check.md` report next to the master file.
 
 ### Call to Worship — per-church exact matching
 
@@ -91,7 +108,7 @@ Some Psalms have multiple CtW slide variants in OpenLP (e.g., `CtW Psalm 23:1-6`
    {ctw_ref_elkton}
    {ctw_ref_lb}
    ```
-2. Run `--dry-run -c`. If the report shows `MULTIPLE` for a church, copy the exact slide title from the Detail column into the appropriate placeholder.
+2. Run `prepub.py -t`. If the report shows `MULTIPLE` for a church, copy the exact slide title from the Detail column into the appropriate placeholder.
 3. Run the real gather (`-c`) and publish — both use exact matching on those values. If a per-church placeholder is blank, CtW is skipped for that church.
 
 `{ctw_ref}` (the lectionary reference) is still used by the dry run to enumerate candidates. The per-church placeholders hold the full OpenLP slide title selected for that week.

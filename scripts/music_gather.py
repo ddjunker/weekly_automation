@@ -362,8 +362,6 @@ def main():
     parser = argparse.ArgumentParser(description="Weekly Automation: music retrieval")
     parser.add_argument("--master", required=True, help="Master markdown filename or path")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Check DB/CCLI lookups and report mismatches without writing to master")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -381,19 +379,6 @@ def main():
     lb_index = build_song_index("lb")
 
     md = read_text(master_path)
-
-    if args.dry_run:
-        results = check_master(md, elk_index, lb_index)
-        report_path = _write_music_check_report(master_path, results)
-        print(f"\nDry-run report written: {report_path}\n")
-        missing = [r for r in results if r["status"] == "MISSING"]
-        if missing:
-            print(f"Issues found: {len(missing)}")
-            for r in missing:
-                print(f"  [MISSING] {r['slot']} / {r['church']}: {r['title']} ({r['id']}) — {r['detail']}")
-        else:
-            print("All song slots resolved successfully.")
-        return
 
     updated = process_master(md, elk_index, lb_index)
 
