@@ -80,6 +80,9 @@ python scripts/welcome.py
 python -m scripts.publish "Master 2025-11-23.md"
 ```
 
+both gather scripts now have a --dry-run flag that does misssing/duplicate checks of locally stored data and writes to a separate markdown file
+
+
 ### text_gather.py section flags
 
 By default `text_gather.py` runs all sections. Use one or more of the following flags to update only specific placeholders:
