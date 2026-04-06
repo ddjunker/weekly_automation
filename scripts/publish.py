@@ -1458,9 +1458,9 @@ def _format_ctw_markdown_lines(name: str, value: str) -> str:
     for line in value.split("\n"):
         stripped = line.strip()
         if stripped.startswith("P"):
-            line = f"*{line}*"
+            line = f"*{line}"
         elif stripped.startswith("L"):
-            line = f"**{line}**"
+            line = f"**{line}"
         result.append(line)
     return "\n".join(result)
 
