@@ -1450,6 +1450,21 @@ _PARA_SPLIT_PLACEHOLDERS = frozenset({
 })
 
 
+def _format_ctw_markdown_lines(name: str, value: str) -> str:
+    """For ctw_xml_* placeholders, italicise lines starting with P and bold lines starting with L."""
+    if not name.startswith("ctw_xml_"):
+        return value
+    result = []
+    for line in value.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("P"):
+            line = f"*{line}*"
+        elif stripped.startswith("L"):
+            line = f"**{line}**"
+        result.append(line)
+    return "\n".join(result)
+
+
 def _expand_writer_paragraph(text: str, name: str, value: str) -> str:
     """Replace {name} with multiple <text:p> elements, one per non-empty line.
 
@@ -1588,6 +1603,7 @@ def render_markdown_template(
 
         value = _apply_delete_rule(value)
         value = _reflow_for_public_reading(name, value)
+        value = _format_ctw_markdown_lines(name, value)
 
         # Apply omit before actual replacement (needs the token still present),
         # unless this placeholder has an omit override (use the fallback instead).
