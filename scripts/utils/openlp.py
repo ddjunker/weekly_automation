@@ -169,6 +169,7 @@ def load_song(church: str, uuid: int) -> dict | None:
     return {
         "id": row["id"],
         "title": clean_text(row["title"] or ""),
+        "raw_title": row["title"] or "",
         "search_title": row["search_title"] or "",
         "alternate_title": row["alternate_title"] or "",
         "lyrics": full_scrub(row["lyrics"] or ""),
@@ -176,8 +177,11 @@ def load_song(church: str, uuid: int) -> dict | None:
         "hymnal": row["hymnal"],
         "entry": row["entry"],
         "authors": clean_text(row["authors"] or ""),
+        "raw_authors": row["authors"] or "",
         "copyright": clean_text(row["copyright"] or ""),
+        "raw_copyright": row["copyright"] or "",
         "ccli_number": clean_text(str(row["ccli_number"] or "")),
+        "raw_ccli_number": str(row["ccli_number"] or ""),
     }
 
 
@@ -384,8 +388,11 @@ def load_custom_slide(church: str, uuid: int) -> dict | None:
     return {
         "id": row["id"],
         "title": clean_text(row["title"] or ""),
+        "raw_title": row["title"] or "",
         "credits": clean_text(row["credits"] or ""),
+        "raw_credits": row["credits"] or "",
         "text": full_scrub(row["text"] or ""),
+        "raw_text": row["text"] or "",
     }
 
 
@@ -414,11 +421,31 @@ def list_custom_slides(church: str) -> list[dict]:
         title = r["title"] or ""
         slides.append({
             "uuid": slide_id,              # keep as int for load_custom_slide()
-            "title": clean_text(title),    # normalize once, consistently
+            "title": clean_text(title),    # normalized for search/matching only
+            "raw_title": title,            # exact DB value for .osz header
         })
 
     return slides
 
+
+
+def extract_openlp_slide_text(xml_text: str) -> str:
+    """
+    Extract slide text from a custom slide DB record for verbatim use in .osz
+    service files.  Strips the XML/CDATA wrapper but preserves OpenLP formatting
+    codes ({y}, {/y}, [===], etc.) so OpenLP renders the slide correctly.
+    Multiple CDATA sections (multi-page slides) are joined with the OpenLP
+    page-break separator.
+    """
+    import html as _html
+
+    pages = re.findall(r'<!\[CDATA\[(.*?)\]\]>', xml_text, re.DOTALL)
+    if pages:
+        return "[===]\n".join(p.strip() for p in pages if p.strip())
+
+    # Fallback: strip XML tags only, no character normalization
+    text = re.sub(r'<[^>]+>', '', xml_text)
+    return _html.unescape(text).strip()
 
 
 # ============================================================================

@@ -264,6 +264,87 @@ def gather_scripture_text(md: str) -> str:
 
 
 
+# ---------------- Dry-run checks ----------------
+
+def _check_scripture(md: str) -> list[dict]:
+    """Check all scripture references against the DB without writing. Returns list of result dicts."""
+    results = []
+    for idx in (1, 2, 3):
+        ref = extract_block(md, f"scripture_ref_{idx}")
+        if not ref:
+            continue
+        for church in ("elkton", "lb"):
+            try:
+                text = get_scripture_text(church, ref)
+                verse_count = len([l for l in text.splitlines() if l.strip()])
+                results.append({"section": "Scripture", "item": ref, "church": church,
+                                "status": "found", "detail": f"{verse_count} verse(s)"})
+            except Exception as e:
+                results.append({"section": "Scripture", "item": ref, "church": church,
+                                "status": "MISSING", "detail": str(e)})
+    return results
+
+
+def _check_custom_slides(md: str, check_ctw: bool = True, check_aof: bool = True) -> list[dict]:
+    """Check CtW and AoF custom slide availability without writing. Returns list of result dicts."""
+    results = []
+    ctw_ref = extract_clean(md, "ctw_ref")
+    aof_ref = extract_clean(md, "aof_ref")
+
+    for church in ("elkton", "lb"):
+        if check_ctw and ctw_ref:
+            prefix = f"CtW {ctw_ref}"
+            prefix_clean = clean_text(prefix).lower().replace(",", "")
+            matches = [s for s in list_custom_slides(church)
+                       if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
+            if not matches:
+                results.append({"section": "CtW", "item": prefix, "church": church,
+                                "status": "MISSING", "detail": "No match found"})
+            else:
+                status = "found" if len(matches) == 1 else f"MULTIPLE ({len(matches)})"
+                results.append({"section": "CtW", "item": prefix, "church": church,
+                                "status": status, "detail": "; ".join(s["raw_title"] for s in matches)})
+
+        if check_aof and aof_ref:
+            prefix = f"AoF p{aof_ref}"
+            prefix_clean = clean_text(prefix).lower()
+            matches = [s for s in list_custom_slides(church)
+                       if clean_text(s["title"]).lower().startswith(prefix_clean)]
+            if not matches:
+                results.append({"section": "AoF", "item": prefix, "church": church,
+                                "status": "MISSING", "detail": "No match found"})
+            else:
+                status = "found" if len(matches) == 1 else f"MULTIPLE ({len(matches)})"
+                results.append({"section": "AoF", "item": prefix, "church": church,
+                                "status": status, "detail": "; ".join(s["raw_title"] for s in matches)})
+
+    return results
+
+
+def _write_text_check_report(master_path: Path, results: list[dict]) -> Path:
+    """Write dry-run check results to a markdown report file next to the master."""
+    report_path = master_path.with_name(master_path.stem + "_text_check.md")
+    lines = [f"# Text Check: {master_path.name}\n"]
+
+    sections = {}
+    for r in results:
+        sections.setdefault(r["section"], []).append(r)
+
+    for section, rows in sections.items():
+        lines.append(f"## {section}\n")
+        lines.append("| Item | Church | Status | Detail |")
+        lines.append("|------|--------|--------|--------|")
+        for r in rows:
+            lines.append(f"| {r['item']} | {r['church']} | {r['status']} | {r['detail']} |")
+        lines.append("")
+
+    if not results:
+        lines.append("*(No checkable items found — offertory/benediction require interactive capture)*\n")
+
+    report_path.write_text("\n".join(lines), encoding="utf-8")
+    return report_path
+
+
 # ---------------- Main ----------------
 
 def main():
@@ -271,6 +352,8 @@ def main():
     parser.add_argument("--master", required=True)
     parser.add_argument("--open-output", action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Check DB lookups and report mismatches without writing to master")
     parser.add_argument("-s", action="store_true", help="Update scripture placeholders only")
     parser.add_argument("-c", action="store_true", help="Update CtW placeholders only")
     parser.add_argument("-a", action="store_true", help="Update AoF placeholders only")
@@ -294,6 +377,23 @@ def main():
         raise SystemExit(f"Master file not found: {master_path}")
 
     md = master_path.read_text(encoding="utf-8")
+
+    if args.dry_run:
+        results = []
+        if run_s:
+            results.extend(_check_scripture(md))
+        if run_c or run_a:
+            results.extend(_check_custom_slides(md, check_ctw=run_c, check_aof=run_a))
+        report_path = _write_text_check_report(master_path, results)
+        print(f"\nDry-run report written: {report_path}\n")
+        missing = [r for r in results if r["status"].startswith("MISSING") or r["status"].startswith("MULTIPLE")]
+        if missing:
+            print(f"Issues found: {len(missing)}")
+            for r in missing:
+                print(f"  [{r['status']}] {r['section']} / {r['item']} ({r['church']}): {r['detail']}")
+        else:
+            print("All checked items resolved successfully.")
+        return
 
     if run_w:
         if check_firefox_running():

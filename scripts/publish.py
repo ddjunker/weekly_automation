@@ -104,7 +104,7 @@ def _get_slide_text_for_prefix(church: str, prefix: str) -> tuple[str, str] | No
     Find a custom slide whose title starts with prefix and return (title, cleaned_text).
     """
     from scripts.utils.openlp import list_custom_slides, load_custom_slide
-    from scripts.utils.text_clean import clean_text, xml_to_text
+    from scripts.utils.text_clean import clean_text
 
     prefix_clean = clean_text(prefix).lower().replace(",", "")
     slides = list_custom_slides(church)
@@ -120,15 +120,15 @@ def _get_slide_text_for_prefix(church: str, prefix: str) -> tuple[str, str] | No
     )
 
     slide = load_custom_slide(church, chosen["uuid"])
-    if not slide or not isinstance(slide.get("text"), str) or not slide["text"].strip():
+    if not slide or not isinstance(slide.get("raw_text"), str) or not slide["raw_text"].strip():
         return None
 
-    text = xml_to_text(slide["text"])
-    text = re.sub(r"\[={3,}\]|\[[\-—]{3,}\]|\{y\}|\{/y\}", "", text).strip()
+    from scripts.utils.openlp import extract_openlp_slide_text
+    text = extract_openlp_slide_text(slide["raw_text"])
     if not text:
         return None
 
-    return str(chosen["title"]), text
+    return slide["raw_title"], text
 
 
 def _replace_custom_item_text(service_data: list, marker_title: str, new_title: str, new_text: str) -> bool:
@@ -156,6 +156,7 @@ def _replace_custom_item_text(service_data: list, marker_title: str, new_title: 
 
         header["title"] = new_title
         header["footer"] = [f"{new_title} "]
+        header["data"] = {"title": new_title, "credits": ""}
         svc["data"] = [{
             "title": new_title[:30],
             "raw_slide": new_text,
@@ -915,16 +916,16 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
         verse_order = str(song.get("verse_order") or "").strip()
         pre_slides = parse_song_xml(lyrics_xml, verse_order)
         lyrics_text = "" if pre_slides is not None else xml_to_text(lyrics_xml)
-        new_title = str(song.get("title") or title or f"{hymnal} {entry}").strip()
+        new_title = str(song.get("raw_title") or song.get("title") or title or f"{hymnal} {entry}").strip()
         return _replace_song_item_by_marker(
             service_data,
             song_marker,
             new_title,
             lyrics_text,
             slides=pre_slides,
-            authors=str(song.get("authors") or "").strip(),
-            copyright_text=str(song.get("copyright") or "").strip(),
-            ccli_number=str(song.get("ccli_number") or "").strip(),
+            authors=str(song.get("raw_authors") or song.get("authors") or "").strip(),
+            copyright_text=str(song.get("raw_copyright") or song.get("copyright") or "").strip(),
+            ccli_number=str(song.get("raw_ccli_number") or song.get("ccli_number") or "").strip(),
             hymnal=str(hymnal or "").strip(),
             entry=str(entry or "").strip(),
             search_title=str(song.get("search_title") or "").strip(),
