@@ -1465,10 +1465,18 @@ def _expand_writer_paragraph(text: str, name: str, value: str) -> str:
     opening_tag = m.group(1)
     closing_tag = m.group(2)
     lines = [ln for ln in value.split("\n") if ln.strip()]
+    is_ctw = name.startswith("ctw_xml_")
     if not lines:
         replacement = opening_tag + closing_tag
     else:
-        replacement = "".join(opening_tag + ln + closing_tag for ln in lines)
+        parts = []
+        for ln in lines:
+            if is_ctw and ln.strip().startswith("P"):
+                content = '<text:span text:style-name="Strong Emphasis">' + ln + "</text:span>"
+            else:
+                content = ln
+            parts.append(opening_tag + content + closing_tag)
+        replacement = "".join(parts)
     return text[: m.start()] + replacement + text[m.end() :]
 
 
