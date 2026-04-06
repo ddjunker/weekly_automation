@@ -304,20 +304,35 @@ def process_master(md: str, elk_index: dict, lb_index: dict) -> str:
 # Dry-run check
 # =====================================================================
 
+_SKIP_MARKERS = {"omit", "tbd", "congregational choice"}
+
+
+def _has_unfilled_placeholder(val: str) -> bool:
+    """Return True if val contains an unresolved {placeholder} token."""
+    return bool(re.search(r'\{[^}]+\}', val))
+
+
 def check_master(md: str, elk_index: dict, lb_index: dict) -> list[dict]:
     """Check song availability without modifying md. Returns list of result dicts."""
     results = []
     for slot in ("opening", "middle", "closing"):
         for church, index in (("elkton", elk_index), ("lb", lb_index)):
-            title = extract_block(md, f"song_{slot}_title_{church}")
-            sid = extract_block(md, f"song_{slot}_id_{church}")
+            title = extract_block(md, f"song_{slot}_title_{church}").strip()
+            sid = extract_block(md, f"song_{slot}_id_{church}").strip()
+
+            # Treat unresolved placeholder tokens as empty
+            if _has_unfilled_placeholder(title):
+                title = ""
+            if _has_unfilled_placeholder(sid):
+                sid = ""
 
             if not title and not sid:
                 continue
 
-            if slot == "closing" and church == "lb" and title.lower() == "congregational choice":
-                results.append({"slot": slot, "church": church, "title": title, "id": sid or "—",
-                                "status": "skipped", "detail": "Congregational choice"})
+            if title.lower() in _SKIP_MARKERS or sid.lower() in _SKIP_MARKERS:
+                marker = title or sid
+                results.append({"slot": slot, "church": church, "title": title or "—",
+                                "id": sid or "—", "status": "skipped", "detail": marker})
                 continue
 
             if parse_song_id(sid or "", title_for_log=title):
@@ -339,6 +354,11 @@ def check_master(md: str, elk_index: dict, lb_index: dict) -> list[dict]:
     return results
 
 
+def _cell(val: str) -> str:
+    """Sanitize a value for use in a markdown table cell."""
+    return val.replace("\n", " ").replace("|", "\\|").strip()
+
+
 def _write_music_check_report(master_path: Path, results: list[dict]) -> Path:
     """Write dry-run check results to a markdown report file next to the master."""
     report_path = master_path.with_name(master_path.stem + "_music_check.md")
@@ -347,7 +367,8 @@ def _write_music_check_report(master_path: Path, results: list[dict]) -> Path:
     lines.append("|------|--------|-------|----|--------|--------|")
     for r in results:
         lines.append(
-            f"| {r['slot']} | {r['church']} | {r['title']} | {r['id']} | {r['status']} | {r['detail']} |"
+            f"| {_cell(r['slot'])} | {_cell(r['church'])} | {_cell(r['title'])} "
+            f"| {_cell(r['id'])} | {_cell(r['status'])} | {_cell(r['detail'])} |"
         )
     lines.append("")
     report_path.write_text("\n".join(lines), encoding="utf-8")
@@ -362,8 +383,6 @@ def main():
     parser = argparse.ArgumentParser(description="Weekly Automation: music retrieval")
     parser.add_argument("--master", required=True, help="Master markdown filename or path")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Check DB/CCLI lookups and report mismatches without writing to master")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -381,19 +400,6 @@ def main():
     lb_index = build_song_index("lb")
 
     md = read_text(master_path)
-
-    if args.dry_run:
-        results = check_master(md, elk_index, lb_index)
-        report_path = _write_music_check_report(master_path, results)
-        print(f"\nDry-run report written: {report_path}\n")
-        missing = [r for r in results if r["status"] == "MISSING"]
-        if missing:
-            print(f"Issues found: {len(missing)}")
-            for r in missing:
-                print(f"  [MISSING] {r['slot']} / {r['church']}: {r['title']} ({r['id']}) — {r['detail']}")
-        else:
-            print("All song slots resolved successfully.")
-        return
 
     updated = process_master(md, elk_index, lb_index)
 

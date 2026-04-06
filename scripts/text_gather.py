@@ -357,8 +357,6 @@ def main():
     parser.add_argument("--master", required=True)
     parser.add_argument("--open-output", action="store_true")
     parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Check DB lookups and report mismatches without writing to master")
     parser.add_argument("-s", action="store_true", help="Update scripture placeholders only")
     parser.add_argument("-c", action="store_true", help="Update CtW placeholders only")
     parser.add_argument("-a", action="store_true", help="Update AoF placeholders only")
@@ -382,23 +380,6 @@ def main():
         raise SystemExit(f"Master file not found: {master_path}")
 
     md = master_path.read_text(encoding="utf-8")
-
-    if args.dry_run:
-        results = []
-        if run_s:
-            results.extend(_check_scripture(md))
-        if run_c or run_a:
-            results.extend(_check_custom_slides(md, check_ctw=run_c, check_aof=run_a))
-        report_path = _write_text_check_report(master_path, results)
-        print(f"\nDry-run report written: {report_path}\n")
-        missing = [r for r in results if r["status"].startswith("MISSING") or r["status"].startswith("MULTIPLE")]
-        if missing:
-            print(f"Issues found: {len(missing)}")
-            for r in missing:
-                print(f"  [{r['status']}] {r['section']} / {r['item']} ({r['church']}): {r['detail']}")
-        else:
-            print("All checked items resolved successfully.")
-        return
 
     if run_w:
         if check_firefox_running():
