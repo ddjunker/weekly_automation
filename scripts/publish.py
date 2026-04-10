@@ -560,8 +560,13 @@ def _fetch_scripture_verses(church: str, passage: str) -> list[tuple[int, int, s
         raise ValueError(f"Unable to parse scripture reference: {passage}")
 
     book, remainder = m.group(1).strip(), m.group(2).strip()
-    cur.execute("SELECT id FROM book WHERE name LIKE ?", (book,))
+    cur.execute("SELECT id FROM book WHERE TRIM(name) LIKE TRIM(?)", (book,))
     row = cur.fetchone()
+    if not row:
+        cur.execute("SELECT id, name FROM book WHERE TRIM(name) LIKE ? ORDER BY name", (book + "%",))
+        rows = cur.fetchall()
+        if len(rows) == 1:
+            row = rows[0]
     if not row:
         conn.close()
         raise ValueError(f"Book '{book}' not found in DB")
