@@ -22,6 +22,7 @@ venv/
 openlp_env.py
 *.env
 *.ini
+!scripts/weekly_config.ini
 secrets.json
 config.yml
 config.yaml
