@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 welcome.py
 GIMP 3.x headless updater: set cal_date + cal_church text layers and export PNG.
@@ -80,12 +81,11 @@ def _find_gimp_console_exe() -> Path | None:
     gimp_bin = getattr(config, "gimp_bin_dir", Path(""))
     if not gimp_bin:
         return None
-    candidates = [
-        gimp_bin / "gimp-console-3.0.exe",
-        gimp_bin / "gimp-console.exe",
-        gimp_bin / "gimp-3.0.exe",
-        gimp_bin / "gimp.exe",
-    ]
+    names = ["gimp-console-3.0", "gimp-console", "gimp-3.0", "gimp"]
+    if os.name == "nt":
+        candidates = [gimp_bin / f"{n}.exe" for n in names]
+    else:
+        candidates = [gimp_bin / n for n in names]
     for candidate in candidates:
         if candidate.exists():
             return candidate

@@ -5,6 +5,7 @@ text_gather.py — Weekly Automation: Scripture + Offertory + CtW + AoF Gatherer
 
 import subprocess
 import importlib
+import sys
 import psutil
 import argparse
 import logging
@@ -16,6 +17,9 @@ from typing import Any
 playwright_sync_api: Any = importlib.import_module("playwright.sync_api")
 sync_playwright = playwright_sync_api.sync_playwright
 PWTimeout = playwright_sync_api.TimeoutError
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.utils.config import config, resolve_master_path
 from scripts.utils.placeholder import (
@@ -33,10 +37,13 @@ from scripts.utils.openlp import (
 
 # ---------------- this is to avoid the empty clipboard problem encountered with one of the sites -----------------
 
+_FIREFOX_PROC_NAME = "firefox.exe" if sys.platform == "win32" else "firefox"
+
+
 def check_firefox_running():
     """Check if any Firefox processes are running."""
     for proc in psutil.process_iter(['name']):
-        if proc.info['name'] == 'firefox.exe':  # Use 'firefox' on Linux/Mac
+        if proc.info['name'] == _FIREFOX_PROC_NAME:
             return True
     return False
 
@@ -44,7 +51,7 @@ def check_firefox_running():
 def close_firefox_instances():
     """Close all running Firefox processes."""
     for proc in psutil.process_iter(['name']):
-        if proc.info['name'] == 'firefox.exe':  # Use 'firefox' on Linux/Mac
+        if proc.info['name'] == _FIREFOX_PROC_NAME:
             try:
                 proc.terminate()  # Gracefully terminate the process
                 proc.wait(timeout=5)  # Wait for the process to terminate

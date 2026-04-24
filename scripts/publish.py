@@ -1,7 +1,9 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 import logging
 import re
 import argparse
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Tuple
@@ -11,6 +13,9 @@ import zipfile
 import tempfile
 from copy import deepcopy
 from xml.etree import ElementTree as ET
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.utils.config import config
 from scripts.utils.file_io import read_text, write_text
@@ -1148,6 +1153,7 @@ def build_markdown_and_writer_outputs(
                                 lookup = build_master_lookup(master_md, placeholders)
                                 for name in placeholders:
                                     if name not in lookup:
+                                        text = text.replace(f"{{{name}}}", "")
                                         continue
                                     value = lookup[name]
                                     # In XML, "omit" and "delete" both collapse to empty string
@@ -1516,18 +1522,6 @@ def _format_writer_placeholder_value(placeholder_name: str, value: str) -> str:
 # Template rendering rules
 # -----------------------------------------------------------------------------
 
-def _apply_omit_rule(rendered: str, placeholder_name: str, value: str) -> str:
-    """
-    If the replacement value is exactly 'omit' (case-insensitive),
-    remove the *entire line* that contains the placeholder token.
-    """
-    if value.strip().lower() != "omit":
-        return rendered
-
-    # Remove lines containing {placeholder_name}
-    pattern = re.compile(rf"^.*\{{{re.escape(placeholder_name)}\}}.*\n?", re.MULTILINE)
-    return pattern.sub("", rendered)
-
 
 def _apply_delete_rule(value: str) -> str:
     """
@@ -1600,22 +1594,22 @@ def render_markdown_template(
                 break
 
         if not found:
-            msg = f"Placeholder {{{name}}} not found in Master.md (left unchanged)."
+            msg = f"Placeholder {{{name}}} not found in Master.md (removed)."
             if strict:
                 raise ValueError(msg)
             warnings.append(msg)
+            rendered = rendered.replace(f"{{{name}}}", "")
             continue
 
-        value = _apply_delete_rule(value)
-        value = _reflow_for_public_reading(name, value)
-        value = _format_ctw_markdown_lines(name, value)
-
-        # Apply omit before actual replacement (needs the token still present),
-        # unless this placeholder has an omit override (use the fallback instead).
         if name in omit_overrides and value.strip().lower() == "omit":
             value = omit_overrides[name]
+        elif value.strip().lower() in ("omit", "delete"):
+            value = ""
         else:
-            rendered = _apply_omit_rule(rendered, name, value)
+            value = _apply_delete_rule(value)
+
+        value = _reflow_for_public_reading(name, value)
+        value = _format_ctw_markdown_lines(name, value)
 
         # Replace *all* occurrences of the placeholder token with the value
         # (templates sometimes repeat IDs/titles)
