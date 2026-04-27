@@ -1,4 +1,4 @@
-# Weekly Automation
+# Weekly Automation — v1.1
 
 The **Weekly Automation** project is a cross-platform system that gathers, processes, and disseminates weekly liturgy and worship materials for the United Parish of Elkton and LB locations. It centralizes all scripts, templates, and documentation into a single, version-controlled workflow.
 
@@ -10,7 +10,7 @@ This repository contains:
 - Template files for bulletins, speaker notes, liturgist notes, and OpenLP  
 - Config files that define paths, environment variables, and runtime behavior
 
-The project is designed to run on Windows, Linux, and mixed-device environments used by the church’s technical infrastructure.
+The project is designed to run on Windows, Linux, and mixed-device environments used by the church's technical infrastructure.
 
 ## Features
 
@@ -36,7 +36,7 @@ The project is designed to run on Windows, Linux, and mixed-device environments 
 ## Folder Structure (Full details in `STRUCTURE.md`)
 ```
 docs/           → Master files, planning notes, documentation  
-scripts/        → Python/PowerShell scripts for gathering, cleaning, and dissemination  
+scripts/        → Python scripts for gathering, cleaning, and dissemination  
 scripts/utils/  → Shared utility modules (I/O, XML, OpenLP helpers, text cleaning)  
 templates/      → Bulletin templates, markdown skeletons, service structures  
 data/           → Paths, logs, local OpenLP databases, temporary artifacts
@@ -45,47 +45,91 @@ data/           → Paths, logs, local OpenLP databases, temporary artifacts
 ## Setup
 
 ### Requirements
-- Python 3.13  
-- PowerShell  
-- Git  
-- LibreOffice  
-- Obsidian  
+- Python 3.12+
+- Git
+- LibreOffice
+- Obsidian
+- GIMP 3 (for `welcome.py` — see Linux notes below for installation)
 
 ### Installation
-Clone the repository:
+
+Clone the repository (public — no authentication required):
 
 ```bash
-git clone git@github.com:ddjunker/weekly_automation.git
+git clone https://github.com/ddjunker/weekly_automation.git
 cd weekly_automation
 ```
 
-Create a local `openlp_env.py` file in `scripts/utils/`:
+Create a virtual environment. Use `--system-site-packages` so GIMP's Python bindings (`gi`) are accessible:
 
-```python
-# Example format
-OPENLP_PATH_ELK = r"PATH_TO_ELK_OPENLP"
-OPENLP_PATH_LB = r"PATH_TO_LB_OPENLP"
+```bash
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate          # Linux/macOS
+.venv\Scripts\activate             # Windows
 ```
 
-*(This file is intentionally ignored by Git.)*
+Install Python dependencies:
+
+```bash
+pip install -r requirements.txt
+playwright install firefox
+```
+
+### Configuration
+
+`weekly_config.ini` is committed to the repository and includes platform-specific sections. On Linux, values in `[paths_linux]` override `[paths]` automatically — no manual edits needed unless your paths differ from the defaults.
+
+### Linux Deployment
+
+**GIMP 3**
+
+Ubuntu's default apt repository includes GIMP 2.10, which is not compatible with this project. Install GIMP 3 via the dedicated PPA:
+
+```bash
+sudo add-apt-repository ppa:ubuntuhandbook1/gimp-3
+sudo apt update
+sudo apt install gimp
+```
+
+Verify: `gimp --version` should report 3.x. No `gimp_bin_dir` setting is needed — the script finds GIMP automatically via PATH.
+
+**Clipboard support for `text_gather.py -w`**
+
+The `-w` flag reads from the system clipboard. Install the appropriate tool:
+
+```bash
+# X11 sessions
+sudo apt install xclip
+
+# Wayland sessions
+sudo apt install wl-clipboard
+```
+
+**Virtual environment activation**
+
+Add to `~/.bashrc` or `~/.profile` to activate automatically on login:
+
+```bash
+source ~/weekly_automation/.venv/bin/activate
+```
 
 ## Running the Scripts
 
 Example workflow:
 
-```powershell
+```bash
 # 1. Pre-publication checks (read-only, writes report files)
-python scripts/prepub.py --master "docs/Master 2025-11-23.md"
+python3 -m scripts.prepub --master "Master 2025-11-23.md"
 
 # 2. Gather text and music into the master file
-python scripts/text_gather.py --master "docs/Master 2025-11-23.md"
-python scripts/music_gather.py --master "docs/Master 2025-11-23.md"
+python3 -m scripts.text_gather --master "Master 2025-11-23.md"
+python3 -m scripts.music_gather --master "Master 2025-11-23.md"
 
 # 3. Export welcome slides
-python scripts/welcome.py
+python3 -m scripts.welcome "Master 2025-11-23.md"
 
 # 4. Publish all outputs
-python -m scripts.publish "Master 2025-11-23.md"
+python3 -m scripts.publish "Master 2025-11-23.md"
 ```
 
 ### prepub.py — pre-publication checks
@@ -121,20 +165,20 @@ By default `text_gather.py` runs all sections. Use one or more of the following 
 |------|---------|
 | `-s` | Scripture texts |
 | `-c` | Call to Worship (CtW) slides |
-| `-a` | Act of Faith (AoF) slides |
+| `-a` | Affirmation of Faith (AoF) slides |
 | `-w` | Offertory and benediction (launches Firefox) |
 
 Flags may be combined. Omitting all flags runs everything.
 
-```powershell
+```bash
 # Scripture only
-python scripts/text_gather.py --master "docs/Master 2025-11-23.md" -s
+python3 -m scripts.text_gather --master "Master 2025-11-23.md" -s
 
 # CtW and AoF only (no browser)
-python scripts/text_gather.py --master "docs/Master 2025-11-23.md" -c -a
+python3 -m scripts.text_gather --master "Master 2025-11-23.md" -c -a
 
 # Offertory and benediction only
-python scripts/text_gather.py --master "docs/Master 2025-11-23.md" -w
+python3 -m scripts.text_gather --master "Master 2025-11-23.md" -w
 ```
 
 ### publish.py output switches
@@ -149,15 +193,15 @@ By default `publish.py` generates all three output types. Use one of the followi
 
 These flags are mutually exclusive. Omitting all three runs everything.
 
-```powershell
+```bash
 # Markdown only
-python -m scripts.publish "Master 2025-11-23.md" -m
+python3 -m scripts.publish "Master 2025-11-23.md" -m
 
 # Writer files only
-python -m scripts.publish "Master 2025-11-23.md" -w
+python3 -m scripts.publish "Master 2025-11-23.md" -w
 
 # OpenLP only
-python -m scripts.publish "Master 2025-11-23.md" -o
+python3 -m scripts.publish "Master 2025-11-23.md" -o
 ```
 
 ## Rollback Point
@@ -168,7 +212,7 @@ Current milestone rollback tag:
 
 Useful commands:
 
-```powershell
+```bash
 # Inspect the tagged snapshot
 git checkout beta-ready
 
