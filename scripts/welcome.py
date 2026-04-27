@@ -78,39 +78,38 @@ def _setup_gimp_runtime() -> tuple[Any, Any]:
 
 
 def _find_gimp_console_exe() -> Path | None:
+    import shutil
     gimp_bin = getattr(config, "gimp_bin_dir", Path(""))
-    if not gimp_bin:
-        return None
     names = ["gimp-console-3.0", "gimp-console", "gimp-3.0", "gimp"]
-    if os.name == "nt":
-        candidates = [gimp_bin / f"{n}.exe" for n in names]
-    else:
-        candidates = [gimp_bin / n for n in names]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
+    if gimp_bin:
+        if os.name == "nt":
+            candidates = [gimp_bin / f"{n}.exe" for n in names]
+        else:
+            candidates = [gimp_bin / n for n in names]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+    # Fall back to PATH search
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return Path(found)
     return None
 
 
 def _ensure_gimp_runtime_or_reinvoke(argv: list[str]) -> None:
     """
-    If `gi` is unavailable in the current interpreter, reinvoke this script
-    through GIMP's python-fu batch interpreter.
+    Re-invoke this script through GIMP's python-fu batch interpreter
+    unless we are already running inside it (WA_GIMP_BATCH=1).
     """
     if os.environ.get("WA_GIMP_BATCH") == "1":
         return
 
-    try:
-        import gi  # type: ignore[import-not-found]  # noqa: F401
-        return
-    except ModuleNotFoundError:
-        pass
-
     gimp_console = _find_gimp_console_exe()
     if not gimp_console:
         raise RuntimeError(
-            "Python gi module is unavailable and no GIMP console executable was found. "
-            "Set gimp_bin_dir in weekly_config.ini."
+            "No GIMP executable found. Set gimp_bin_dir in weekly_config.ini "
+            "or ensure GIMP is on your PATH."
         )
 
     repo_root = Path(__file__).resolve().parents[1]
