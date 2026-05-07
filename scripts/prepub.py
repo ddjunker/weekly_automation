@@ -22,11 +22,6 @@ if __package__ in {None, ""}:
 
 from scripts.utils.config import resolve_master_path
 from scripts.utils.openlp import build_song_index
-from scripts.text_gather import (
-    _check_scripture,
-    _check_custom_slides,
-    _write_text_check_report,
-)
 from scripts.music_gather import (
     check_master,
     _write_music_check_report,
@@ -70,6 +65,12 @@ def main() -> None:
     md = master_path.read_text(encoding="utf-8")
 
     if run_t:
+        from scripts.text_gather import (
+            _check_scripture,
+            _check_custom_slides,
+            _write_text_check_report,
+        )
+
         results = _check_scripture(md) + _check_custom_slides(md)
         report_path = _write_text_check_report(master_path, results)
         print(f"\nText check report: {report_path}")

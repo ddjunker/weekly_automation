@@ -331,6 +331,14 @@ def check_master(md: str, elk_index: dict, lb_index: dict) -> list[dict]:
                 sid = ""
 
             if not title and not sid:
+                results.append({
+                    "slot": slot,
+                    "church": church,
+                    "title": "—",
+                    "id": "—",
+                    "status": "EMPTY",
+                    "detail": "No title/ID provided",
+                })
                 continue
 
             if title.lower() in _SKIP_MARKERS or sid.lower() in _SKIP_MARKERS:

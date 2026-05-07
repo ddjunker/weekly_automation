@@ -20,9 +20,10 @@ def strip_markdown_comments(text: str) -> str:
 def extract_block(md: str, placeholder: str) -> str:
     placeholder = clean_text(placeholder)
     # =* after token handles Obsidian highlight syntax: =={placeholder}==
-    # lookahead also handles =={next_placeholder}== lines
-    pattern = rf"\{{{placeholder}\}}=*\s*(.*?)(?=\n\s*=*\{{|\Z)"
-    m = re.search(pattern, md, flags=re.S)
+    # Use line-anchored lookahead so blank content does not consume the next
+    # placeholder line (works for LF and CRLF files).
+    pattern = rf"\{{{placeholder}\}}=*[ \t]*(.*?)(?=^[ \t]*=*\{{|\Z)"
+    m = re.search(pattern, md, flags=re.S | re.M)
     return strip_markdown_comments(m.group(1)) if m else ""
 
 def has_placeholder(md: str, placeholder: str) -> bool:
