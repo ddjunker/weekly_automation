@@ -73,35 +73,25 @@ class RenderResult:
 # OpenLP Template Copier
 # -----------------------------------------------------------------------------
 
-def _load_service_data_from_osz(osz_path: Path) -> tuple[list, dict[str, bytes], list[zipfile.ZipInfo]]:
-    """Read service_data.osj and all archive members from an OpenLP .osz file."""
+def _load_service_data_from_osz(osz_path: Path) -> list:
+    """Read service_data.osj from an OpenLP .osz file and return the parsed list."""
     with zipfile.ZipFile(osz_path, "r") as zin:
-        infos = zin.infolist()
-        payloads = {info.filename: zin.read(info.filename) for info in infos}
-
-    if "service_data.osj" not in payloads:
-        raise ValueError(f"service_data.osj not found in {osz_path}")
-
-    service_data = json.loads(payloads["service_data.osj"].decode("utf-8"))
-    return service_data, payloads, infos
+        if "service_data.osj" not in zin.namelist():
+            raise ValueError(f"service_data.osj not found in {osz_path}")
+        raw = zin.read("service_data.osj")
+    return json.loads(raw.decode("utf-8"))
 
 
-def _write_service_data_to_osz(
-    osz_path: Path,
-    service_data: list,
-    payloads: dict[str, bytes],
-    infos: list[zipfile.ZipInfo],
-) -> None:
-    """Write updated service_data.osj back to an OpenLP .osz, preserving other members."""
-    payloads["service_data.osj"] = json.dumps(service_data, ensure_ascii=False).encode("utf-8")
+def _write_service_data_to_osz(osz_path: Path, service_data: list) -> None:
+    """Append updated service_data.osj to an OpenLP .osz without touching other members.
 
-    tmp_path = osz_path.with_suffix(osz_path.suffix + ".tmp")
-    with zipfile.ZipFile(tmp_path, "w") as zout:
-        for info in infos:
-            data = payloads.get(info.filename, b"")
-            zout.writestr(info, data)
-
-    tmp_path.replace(osz_path)
+    Appending leaves the old entry shadowed by the new one — OpenLP and Python's
+    zipfile both honour the last entry for a given name — while avoiding the need
+    to decompress/recompress the large AVI members.
+    """
+    new_json = json.dumps(service_data, ensure_ascii=False).encode("utf-8")
+    with zipfile.ZipFile(osz_path, "a", compression=zipfile.ZIP_DEFLATED) as zout:
+        zout.writestr("service_data.osj", new_json)
 
 
 def _get_slide_text_for_prefix(church: str, prefix: str, exact: bool = False) -> tuple[str, str] | None:
@@ -734,7 +724,7 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
     song_closing_title = extract_block(master_md, f"song_closing_title_{church}").strip()
     song_closing_id = extract_block(master_md, f"song_closing_id_{church}").strip()
 
-    service_data, payloads, infos = _load_service_data_from_osz(osz_path)
+    service_data = _load_service_data_from_osz(osz_path)
     changed = False
 
     if ctw_ref_church:
@@ -839,7 +829,7 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
         changed = True
 
     if changed:
-        _write_service_data_to_osz(osz_path, service_data, payloads, infos)
+        _write_service_data_to_osz(osz_path, service_data)
 
 
 def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
@@ -989,6 +979,33 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
     return changed
 
 
+def _copy_osz_with_retry(src_path: Path, out_path: Path) -> bool:
+    """Copy src_path to out_path and validate it opens as a zip.
+
+    Retries once if the first copy produces an unreadable file (e.g. due to a
+    OneDrive FUSE-mount streaming glitch on large files).  Returns True on
+    success, False if both attempts fail.
+    """
+    import shutil
+    for attempt in range(1, 3):
+        shutil.copy2(src_path, out_path)
+        try:
+            with zipfile.ZipFile(out_path, "r") as z:
+                z.getinfo("service_data.osj")
+            return True
+        except Exception:
+            if attempt == 1:
+                logging.warning(
+                    "Copy of %s is not a valid zip (attempt %d/2), retrying...",
+                    src_path.name, attempt,
+                )
+    logging.warning(
+        "Copy of %s still invalid after 2 attempts; injection will be skipped.",
+        src_path.name,
+    )
+    return False
+
+
 def copy_openlp_templates_for_each_church(
     *,
     master_path: Path | None = None,
@@ -1050,9 +1067,10 @@ def copy_openlp_templates_for_each_church(
         # Output to the same subdirectory with 'Service--{date_slug}.osz' as the name
         out_name = f"Service--{date_slug}.osz"
         out_path = service_dir / out_name
-        # Copy file (binary)
-        with src_path.open("rb") as fsrc, out_path.open("wb") as fdst:
-            fdst.write(fsrc.read())
+        if not _copy_osz_with_retry(src_path, out_path):
+            output_paths[church] = out_path
+            logging.info(f"Copied OpenLP template for {church} to {out_path} (injection skipped — corrupt copy)")
+            continue
 
         try:
             _inject_custom_slides_into_openlp_service(out_path, church, master_md)
