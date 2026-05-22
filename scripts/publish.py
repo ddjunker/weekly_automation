@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Iterable, Tuple
 from datetime import datetime
 import json
+import shutil
 import zipfile
 import tempfile
 from copy import deepcopy
@@ -83,15 +84,28 @@ def _load_service_data_from_osz(osz_path: Path) -> list:
 
 
 def _write_service_data_to_osz(osz_path: Path, service_data: list) -> None:
-    """Append updated service_data.osj to an OpenLP .osz without touching other members.
+    """Write updated service_data.osj back to an OpenLP .osz, preserving other members.
 
-    Appending leaves the old entry shadowed by the new one — OpenLP and Python's
-    zipfile both honour the last entry for a given name — while avoiding the need
-    to decompress/recompress the large AVI members.
+    Streams each non-JSON member in chunks to avoid loading large AVI files fully
+    into memory.  Builds the output in a local temp file first to sidestep
+    unreliable random-write behaviour on OneDrive FUSE mounts, then copies the
+    finished file into place.
     """
     new_json = json.dumps(service_data, ensure_ascii=False).encode("utf-8")
-    with zipfile.ZipFile(osz_path, "a", compression=zipfile.ZIP_DEFLATED) as zout:
-        zout.writestr("service_data.osj", new_json)
+    with tempfile.NamedTemporaryFile(suffix=".osz", delete=False) as tf:
+        tmp_path = Path(tf.name)
+    try:
+        with zipfile.ZipFile(osz_path, "r") as zin, \
+             zipfile.ZipFile(tmp_path, "w") as zout:
+            for item in zin.infolist():
+                if item.filename == "service_data.osj":
+                    zout.writestr(item, new_json)
+                else:
+                    with zin.open(item.filename) as src, zout.open(item, "w") as dst:
+                        shutil.copyfileobj(src, dst)
+        shutil.copy2(tmp_path, osz_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _get_slide_text_for_prefix(church: str, prefix: str, exact: bool = False) -> tuple[str, str] | None:
@@ -986,7 +1000,6 @@ def _copy_osz_with_retry(src_path: Path, out_path: Path) -> bool:
     OneDrive FUSE-mount streaming glitch on large files).  Returns True on
     success, False if both attempts fail.
     """
-    import shutil
     for attempt in range(1, 3):
         shutil.copy2(src_path, out_path)
         try:
