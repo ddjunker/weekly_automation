@@ -1,4 +1,4 @@
-# Weekly Automation — v1.1
+# Weekly Automation — v1.1.2
 
 The **Weekly Automation** project is a cross-platform system that gathers, processes, and disseminates weekly liturgy and worship materials for the United Parish of Elkton and LB locations. It centralizes all scripts, templates, and documentation into a single, version-controlled workflow.
 

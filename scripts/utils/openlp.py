@@ -525,15 +525,31 @@ def get_scripture_text(church: str, passage: str) -> str:
             if not verse_expr:
                 continue
 
-            # Range a-b
+            # Range a-b (may cross chapters, e.g. "1-2:4" from "Genesis 1:1-2:4a")
             if "-" in verse_expr:
                 v1_str, v2_str = verse_expr.split("-", 1)
-                v1, v2 = int(v1_str.strip()), int(v2_str.strip())
-                cur.execute("""
-                    SELECT text FROM verse
-                    WHERE book_id=? AND chapter=? AND verse BETWEEN ? AND ?
-                    ORDER BY verse
-                """, (book_id, chapter, v1, v2))
+                v1 = int(v1_str.strip())
+                v2_str = v2_str.strip()
+                if ":" in v2_str:
+                    end_chap_str, end_verse_str = v2_str.split(":", 1)
+                    end_chapter = int(end_chap_str.strip())
+                    v2 = int(end_verse_str.strip())
+                    cur.execute("""
+                        SELECT text FROM verse
+                        WHERE book_id=?
+                          AND ((chapter = ? AND verse >= ?)
+                               OR (chapter > ? AND chapter < ?)
+                               OR (chapter = ? AND verse <= ?))
+                        ORDER BY chapter, verse
+                    """, (book_id, chapter, v1, chapter, end_chapter, end_chapter, v2))
+                    last_chapter = end_chapter
+                else:
+                    v2 = int(v2_str)
+                    cur.execute("""
+                        SELECT text FROM verse
+                        WHERE book_id=? AND chapter=? AND verse BETWEEN ? AND ?
+                        ORDER BY verse
+                    """, (book_id, chapter, v1, v2))
             else:
                 v = int(verse_expr)
                 cur.execute("""

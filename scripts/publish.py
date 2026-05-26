@@ -1322,7 +1322,7 @@ def _strip_noncontent_lines_for_templates(value: str) -> str:
     for line in lines:
         stripped = line.strip()
 
-        if re.match(r"^#{1,6}\s+\S", stripped):
+        if re.match(r"^#{1,2}\s+\S", stripped):
             continue
         if re.match(r"^%%.*%%$", stripped):
             continue
