@@ -87,9 +87,10 @@ def _write_service_data_to_osz(osz_path: Path, service_data: list) -> None:
     """Write updated service_data.osj back to an OpenLP .osz, preserving other members.
 
     Streams each non-JSON member in chunks to avoid loading large AVI files fully
-    into memory.  Builds the output in a local temp file first to sidestep
+    into memory. Builds the output in a local temp file first to sidestep
     unreliable random-write behaviour on OneDrive FUSE mounts, then copies the
-    finished file into place.
+    finished file back to FUSE mount using chunked reads to avoid 10MB boundary
+    corruption.
     """
     new_json = json.dumps(service_data, ensure_ascii=False).encode("utf-8")
     with tempfile.NamedTemporaryFile(suffix=".osz", delete=False) as tf:
@@ -103,7 +104,14 @@ def _write_service_data_to_osz(osz_path: Path, service_data: list) -> None:
                 else:
                     with zin.open(item.filename) as src, zout.open(item, "w") as dst:
                         shutil.copyfileobj(src, dst)
-        shutil.copy2(tmp_path, osz_path)
+        # Copy from /tmp to FUSE mount in chunks to avoid 10MB boundary corruption
+        chunk_size = 1024 * 1024  # 1MB chunks
+        with tmp_path.open("rb") as src, osz_path.open("wb") as dst:
+            while True:
+                chunk = src.read(chunk_size)
+                if not chunk:
+                    break
+                dst.write(chunk)
     finally:
         tmp_path.unlink(missing_ok=True)
 
