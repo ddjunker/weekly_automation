@@ -1014,24 +1014,49 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
 
 
 def _copy_osz_with_retry(src_path: Path, out_path: Path) -> bool:
-    """Copy src_path to out_path and validate it opens as a zip.
+    """Copy src_path to out_path via /tmp with full zip validation.
 
-    Retries once if the first copy produces an unreadable file (e.g. due to a
-    OneDrive FUSE-mount streaming glitch on large files).  Returns True on
-    success, False if both attempts fail.
+    Copies via local /tmp to avoid OneDrive FUSE mount sequential read boundary
+    issues (10MB boundary causes cache→cloud stream switch, injecting corrupted
+    bytes). Validates the entire zip structure including central directory.
+    Returns True on success, False if both attempts fail.
     """
+    import tempfile
+
     for attempt in range(1, 3):
-        shutil.copy2(src_path, out_path)
+        tmp_path = None
         try:
-            with zipfile.ZipFile(out_path, "r") as z:
+            # Create temp file in /tmp (local filesystem, no FUSE)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".osz") as tmp:
+                tmp_path = Path(tmp.name)
+
+            # Copy in chunks (avoids large sequential read through FUSE boundary)
+            chunk_size = 1024 * 1024  # 1MB chunks
+            with src_path.open("rb") as src, tmp_path.open("wb") as dst:
+                while True:
+                    chunk = src.read(chunk_size)
+                    if not chunk:
+                        break
+                    dst.write(chunk)
+
+            # Validate full zip structure (reads central directory, not just EOCD)
+            with zipfile.ZipFile(tmp_path, "r") as z:
+                z.namelist()  # Forces read of central directory
                 z.getinfo("service_data.osj")
+
+            # Move from /tmp to final destination
+            shutil.move(str(tmp_path), str(out_path))
             return True
+
         except Exception:
+            if tmp_path:
+                tmp_path.unlink(missing_ok=True)
             if attempt == 1:
                 logging.warning(
                     "Copy of %s is not a valid zip (attempt %d/2), retrying...",
                     src_path.name, attempt,
                 )
+
     logging.warning(
         "Copy of %s still invalid after 2 attempts; injection will be skipped.",
         src_path.name,
