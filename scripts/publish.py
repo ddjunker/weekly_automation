@@ -86,14 +86,13 @@ def _load_service_data_from_osz(osz_path: Path) -> list:
 def _write_service_data_to_osz(osz_path: Path, service_data: list) -> None:
     """Write updated service_data.osj back to an OpenLP .osz, preserving other members.
 
-    Streams each non-JSON member in chunks to avoid loading large AVI files fully
-    into memory. Builds the output in a local temp file first to sidestep
-    unreliable random-write behaviour on OneDrive FUSE mounts, then copies the
-    finished file back to FUSE mount using chunked reads to avoid 10MB boundary
-    corruption.
+    osz_path must already be on a local filesystem (e.g. /tmp) — never a FUSE
+    mount — so that zipfile can read the large AVI entries without hitting the
+    OneDrive 10MB sequential-read boundary.  Rebuilds the zip in a second temp
+    file then replaces osz_path in place.
     """
     new_json = json.dumps(service_data, ensure_ascii=False).encode("utf-8")
-    with tempfile.NamedTemporaryFile(suffix=".osz", delete=False) as tf:
+    with tempfile.NamedTemporaryFile(suffix=".osz", delete=False, dir=osz_path.parent) as tf:
         tmp_path = Path(tf.name)
     try:
         with zipfile.ZipFile(osz_path, "r") as zin, \
@@ -104,16 +103,10 @@ def _write_service_data_to_osz(osz_path: Path, service_data: list) -> None:
                 else:
                     with zin.open(item.filename) as src, zout.open(item, "w") as dst:
                         shutil.copyfileobj(src, dst)
-        # Copy from /tmp to FUSE mount in chunks to avoid 10MB boundary corruption
-        chunk_size = 1024 * 1024  # 1MB chunks
-        with tmp_path.open("rb") as src, osz_path.open("wb") as dst:
-            while True:
-                chunk = src.read(chunk_size)
-                if not chunk:
-                    break
-                dst.write(chunk)
-    finally:
+        tmp_path.replace(osz_path)
+    except Exception:
         tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def _get_slide_text_for_prefix(church: str, prefix: str, exact: bool = False) -> tuple[str, str] | None:
@@ -1021,55 +1014,52 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
     return changed
 
 
-def _copy_osz_with_retry(src_path: Path, out_path: Path) -> bool:
-    """Copy src_path to out_path via /tmp with full zip validation.
+def _copy_osz_to_tmp(src_path: Path) -> "Path | None":
+    """Copy src_path to a validated local /tmp file and return that path.
 
-    Copies via local /tmp to avoid OneDrive FUSE mount sequential read boundary
-    issues (10MB boundary causes cache→cloud stream switch, injecting corrupted
-    bytes). Validates the entire zip structure including central directory.
-    Returns True on success, False if both attempts fail.
+    Reads from the OneDrive FUSE mount in 1MB chunks to avoid the 10MB
+    sequential-read boundary issue, validates the full zip structure (central
+    directory, not just EOCD), and returns the /tmp Path on success.  Retries
+    once.  Returns None if both attempts fail.
     """
-    import tempfile
+    chunk_size = 1024 * 1024  # 1MB
 
     for attempt in range(1, 3):
         tmp_path = None
         try:
-            # Create temp file in /tmp (local filesystem, no FUSE)
             with tempfile.NamedTemporaryFile(delete=False, suffix=".osz") as tmp:
                 tmp_path = Path(tmp.name)
 
-            # Copy in chunks (avoids large sequential read through FUSE boundary)
-            chunk_size = 1024 * 1024  # 1MB chunks
             with src_path.open("rb") as src, tmp_path.open("wb") as dst:
-                while True:
-                    chunk = src.read(chunk_size)
-                    if not chunk:
-                        break
-                    dst.write(chunk)
+                shutil.copyfileobj(src, dst, chunk_size)
 
-            # Validate full zip structure (reads central directory, not just EOCD)
             with zipfile.ZipFile(tmp_path, "r") as z:
-                z.namelist()  # Forces read of central directory
+                z.namelist()
                 z.getinfo("service_data.osj")
 
-            # Move from /tmp to final destination
-            shutil.move(str(tmp_path), str(out_path))
-            return True
+            return tmp_path
 
         except Exception:
             if tmp_path:
                 tmp_path.unlink(missing_ok=True)
             if attempt == 1:
                 logging.warning(
-                    "Copy of %s is not a valid zip (attempt %d/2), retrying...",
+                    "Copy of %s to /tmp is not a valid zip (attempt %d/2), retrying...",
                     src_path.name, attempt,
                 )
 
     logging.warning(
-        "Copy of %s still invalid after 2 attempts; injection will be skipped.",
+        "Copy of %s to /tmp still invalid after 2 attempts; skipping.",
         src_path.name,
     )
-    return False
+    return None
+
+
+def _write_tmp_to_fuse(tmp_path: Path, dst_path: Path) -> None:
+    """Write a local /tmp file to a FUSE mount path using 1MB chunked writes."""
+    chunk_size = 1024 * 1024  # 1MB
+    with tmp_path.open("rb") as src, dst_path.open("wb") as dst:
+        shutil.copyfileobj(src, dst, chunk_size)
 
 
 def copy_openlp_templates_for_each_church(
@@ -1133,15 +1123,26 @@ def copy_openlp_templates_for_each_church(
         # Output to the same subdirectory with 'Service--{date_slug}.osz' as the name
         out_name = f"Service--{date_slug}.osz"
         out_path = service_dir / out_name
-        if not _copy_osz_with_retry(src_path, out_path):
-            output_paths[church] = out_path
-            logging.info(f"Copied OpenLP template for {church} to {out_path} (injection skipped — corrupt copy)")
+
+        # Work entirely in /tmp to avoid OneDrive FUSE 10MB sequential-read boundary.
+        # The file is only written to the FUSE mount once, at the very end, in chunks.
+        tmp_copy = _copy_osz_to_tmp(src_path)
+        if tmp_copy is None:
+            logging.warning(f"Could not get valid local copy of template for {church}; skipping.")
             continue
 
         try:
-            _inject_custom_slides_into_openlp_service(out_path, church, master_md)
+            _inject_custom_slides_into_openlp_service(tmp_copy, church, master_md)
+            _write_tmp_to_fuse(tmp_copy, out_path)
         except Exception as e:
-            logging.warning("Could not inject custom slides into %s: %s", out_path, e)
+            logging.warning("Could not process OpenLP service for %s: %s", church, e)
+            try:
+                _write_tmp_to_fuse(tmp_copy, out_path)
+            except Exception as e2:
+                logging.warning("Could not write OpenLP service for %s to disk: %s", church, e2)
+                continue
+        finally:
+            tmp_copy.unlink(missing_ok=True)
 
         output_paths[church] = out_path
         logging.info(f"Copied OpenLP template for {church} to {out_path}")
