@@ -148,10 +148,19 @@ def _get_slide_text_for_prefix(church: str, prefix: str, exact: bool = False) ->
     return slide["raw_title"], text
 
 
-def _replace_custom_item_text(service_data: list, marker_title: str, new_title: str, new_text: str) -> bool:
+def _replace_custom_item_text(
+    service_data: list,
+    marker_title: str,
+    new_title: str,
+    new_text: str,
+    *,
+    footer: list | None = None,
+) -> bool:
     """
     Replace one custom service item (matched by header.title) with new custom-slide text.
     Returns True if an item was replaced.
+
+    footer: explicit footer list to use; defaults to [new_title] when None.
     """
     marker = marker_title.strip().lower()
 
@@ -172,7 +181,7 @@ def _replace_custom_item_text(service_data: list, marker_title: str, new_title: 
             continue
 
         header["title"] = new_title
-        header["footer"] = [f"{new_title} "]
+        header["footer"] = footer if footer is not None else [new_title]
         header["data"] = {"title": new_title, "credits": ""}
         svc["data"] = [{
             "title": new_title[:30],
@@ -926,7 +935,9 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
             logging.warning("No intro custom slide matched for %s using prefix %r", holder_marker, intro_prefix)
             return False
         slide_title, slide_text = slide
-        return _replace_custom_item_text(service_data, holder_marker, slide_title, slide_text)
+        # Use empty footer so the intro card doesn't mirror the following song item's
+        # footer (which starts with the same song title), causing near-duplicates.
+        return _replace_custom_item_text(service_data, holder_marker, slide_title, slide_text, footer=[])
 
     song_index = None
 
