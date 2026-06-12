@@ -433,6 +433,61 @@ def _remove_service_items_by_marker(service_data: list, plugin: str, marker_titl
     return removed
 
 
+def _build_openlyrics_xml(
+    title: str,
+    authors: str,
+    copyright_text: str,
+    hymnal: str,
+    entry: str,
+    slides: list[dict],
+) -> str:
+    """Build a minimal OpenLyrics 0.8 XML string for header.xml_version."""
+    from datetime import datetime
+
+    ns = "http://openlyrics.info/namespace/2009/song"
+    ET.register_namespace("", ns)
+
+    song_el = ET.Element(f"{{{ns}}}song")
+    song_el.set("version", "0.8")
+    song_el.set("createdIn", "OpenLP 3.1.7")
+    song_el.set("modifiedIn", "OpenLP 3.1.7")
+    song_el.set("modifiedDate", datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
+
+    props = ET.SubElement(song_el, f"{{{ns}}}properties")
+    titles_el = ET.SubElement(props, f"{{{ns}}}titles")
+    ET.SubElement(titles_el, f"{{{ns}}}title").text = title or ""
+
+    if copyright_text:
+        ET.SubElement(props, f"{{{ns}}}copyright").text = copyright_text
+
+    if authors:
+        authors_el = ET.SubElement(props, f"{{{ns}}}authors")
+        for author in [a.strip() for a in authors.split(",") if a.strip()]:
+            ET.SubElement(authors_el, f"{{{ns}}}author").text = author
+
+    if hymnal and entry:
+        books = ET.SubElement(props, f"{{{ns}}}songbooks")
+        sb = ET.SubElement(books, f"{{{ns}}}songbook")
+        sb.set("name", hymnal)
+        sb.set("entry", entry)
+
+    lyrics_el = ET.SubElement(song_el, f"{{{ns}}}lyrics")
+    seen: set[str] = set()
+    for slide in (slides or []):
+        tag = str(slide.get("verseTag") or "")
+        if not tag:
+            continue
+        name = tag.lower()  # V1→v1, C1→c1
+        if name in seen:
+            continue
+        seen.add(name)
+        verse_el = ET.SubElement(lyrics_el, f"{{{ns}}}verse")
+        verse_el.set("name", name)
+        ET.SubElement(verse_el, f"{{{ns}}}lines").text = str(slide.get("raw_slide") or "")
+
+    return "<?xml version='1.0' encoding='UTF-8'?>\n" + ET.tostring(song_el, encoding="unicode")
+
+
 def _replace_song_item_by_marker(
     service_data: list,
     marker_title: str,
@@ -558,6 +613,9 @@ def _replace_song_item_by_marker(
         ]
 
         svc["data"] = slides
+        header["xml_version"] = _build_openlyrics_xml(
+            new_title, authors_clean, copyright_clean, hymnal_clean, entry_clean, slides
+        )
         return True
 
     return False
@@ -775,7 +833,7 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
         ctw = _get_slide_text_for_prefix(church, ctw_ref_church, exact=True)
         if ctw:
             ctw_title, ctw_text = ctw
-            if _replace_custom_item_text(service_data, "ctw_holder", ctw_title, ctw_text):
+            if _replace_custom_item_text(service_data, "ctw_holder", ctw_title, ctw_text, footer=[""]):
                 changed = True
             else:
                 logging.warning("CtW marker slide not found in %s service template", church)
@@ -786,7 +844,7 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
         aof = _get_slide_text_for_prefix(church, f"AoF p{aof_ref}")
         if aof:
             aof_title, aof_text = aof
-            if _replace_custom_item_text(service_data, "aof_holder", aof_title, aof_text):
+            if _replace_custom_item_text(service_data, "aof_holder", aof_title, aof_text, footer=[""]):
                 changed = True
             else:
                 logging.warning("AoF marker slide not found in elkton service template")
@@ -937,7 +995,7 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
         slide_title, slide_text = slide
         # Use empty footer so the intro card doesn't mirror the following song item's
         # footer (which starts with the same song title), causing near-duplicates.
-        return _replace_custom_item_text(service_data, holder_marker, slide_title, slide_text, footer=[])
+        return _replace_custom_item_text(service_data, holder_marker, slide_title, slide_text, footer=[""])
 
     song_index = None
 

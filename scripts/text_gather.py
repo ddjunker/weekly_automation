@@ -160,16 +160,20 @@ def extract_clean(md: str, key: str) -> str:
 
 def normalize_reference(ref: str):
     """
-    Input like 'Psalm 122:1-9'
-    Returns: (book='Psalm', chapter='122', verses='1-9' or '')
+    Input like 'Psalm 122:1-9' or 'Matthew 9:35-10:8'
+    Returns: (book, chapter, verses)
+    Cross-chapter ranges: ('Matthew', '9-10', '35-10:8')
     """
     ref = ref.replace("–", "-").replace("—", "-").strip()
-    m = re.match(r"^([1-3]?\s?[A-Za-z]+)\s+(\d+)(?::([\dA-Za-z\-,\s]+))?$", ref)
+    m = re.match(r"^([1-3]?\s?[A-Za-z]+)\s+(\d+)(?::([\dA-Za-z\-,\s:]+))?$", ref)
     if not m:
         return ref, "", ""  # let higher logic handle errors
     book = m.group(1)
-    chapter = m.group(2)
+    chapter_start = m.group(2)
     verses = m.group(3) or ""
+    # Detect cross-chapter range like "35-10:8" → show chapter as "9-10"
+    cross = re.match(r"^\d+-(\d+):\d+", verses)
+    chapter = f"{chapter_start}-{cross.group(1)}" if cross else chapter_start
     return book, chapter, verses
 
 
