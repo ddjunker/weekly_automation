@@ -1710,17 +1710,19 @@ def render_markdown_template(
 # -----------------------------------------------------------------------------
 
 def _get_date_slug(master_md: str) -> str:
-    """
-    Use {cal_date} if present; otherwise fallback.
-    We avoid being clever here—just sanitize for filename.
-    """
+    """Return cal_date as YYYY-MM-DD for filenames; fall back to sanitized raw text."""
+    from datetime import datetime
     raw = extract_block(master_md, "cal_date").strip()
     raw = raw or "unknown-date"
     raw = clean_text(raw)
-    # filename-safe-ish
-    raw = re.sub(r"[^\w\-]+", "-", raw)
-    raw = re.sub(r"-{2,}", "-", raw).strip("-")
-    return raw.lower()
+    for fmt in ("%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    slug = re.sub(r"[^\w\-]+", "-", raw)
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    return slug.lower()
 
 
 def _liturgist_output_path(worship_dir: Path, date_slug: str) -> Path:
