@@ -109,7 +109,7 @@ def _write_service_data_to_osz(osz_path: Path, service_data: list) -> None:
         raise
 
 
-def _get_slide_text_for_prefix(church: str, prefix: str, exact: bool = False) -> tuple[str, str] | None:
+def _get_slide_text_for_prefix(church: str, prefix: str, exact: bool = False) -> tuple[str, str, str] | None:
     """
     Find a custom slide whose title starts with prefix and return (title, cleaned_text).
     When exact=True, only a slide whose normalized title equals prefix is accepted.
@@ -145,7 +145,7 @@ def _get_slide_text_for_prefix(church: str, prefix: str, exact: bool = False) ->
     if not text:
         return None
 
-    return slide["raw_title"], text
+    return slide["raw_title"], text, slide.get("raw_credits", "")
 
 
 def _replace_custom_item_text(
@@ -155,12 +155,15 @@ def _replace_custom_item_text(
     new_text: str,
     *,
     footer: list | None = None,
+    credits: str = "",
 ) -> bool:
     """
     Replace one custom service item (matched by header.title) with new custom-slide text.
     Returns True if an item was replaced.
 
-    footer: explicit footer list to use; defaults to [new_title] when None.
+    credits: the Credits field from the source slide; used for header.data.credits and
+             as the footer when no explicit footer list is provided.
+    footer: explicit footer list; when None, defaults to [credits] (or [""] if no credits).
     """
     marker = marker_title.strip().lower()
 
@@ -181,8 +184,11 @@ def _replace_custom_item_text(
             continue
 
         header["title"] = new_title
-        header["footer"] = footer if footer is not None else [new_title]
-        header["data"] = {"title": new_title, "credits": ""}
+        if footer is not None:
+            header["footer"] = footer
+        else:
+            header["footer"] = [credits] if credits else [""]
+        header["data"] = {"title": new_title, "credits": credits}
         svc["data"] = [{
             "title": new_title[:30],
             "raw_slide": new_text,
@@ -832,8 +838,8 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
     if ctw_ref_church:
         ctw = _get_slide_text_for_prefix(church, ctw_ref_church, exact=True)
         if ctw:
-            ctw_title, ctw_text = ctw
-            if _replace_custom_item_text(service_data, "ctw_holder", ctw_title, ctw_text, footer=[""]):
+            ctw_title, ctw_text, ctw_credits = ctw
+            if _replace_custom_item_text(service_data, "ctw_holder", ctw_title, ctw_text, credits=ctw_credits):
                 changed = True
             else:
                 logging.warning("CtW marker slide not found in %s service template", church)
@@ -843,8 +849,8 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
     if church == "elkton" and aof_ref:
         aof = _get_slide_text_for_prefix(church, f"AoF p{aof_ref}")
         if aof:
-            aof_title, aof_text = aof
-            if _replace_custom_item_text(service_data, "aof_holder", aof_title, aof_text, footer=[""]):
+            aof_title, aof_text, aof_credits = aof
+            if _replace_custom_item_text(service_data, "aof_holder", aof_title, aof_text, credits=aof_credits):
                 changed = True
             else:
                 logging.warning("AoF marker slide not found in elkton service template")
@@ -992,10 +998,8 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
         if not slide:
             logging.warning("No intro custom slide matched for %s using prefix %r", holder_marker, intro_prefix)
             return False
-        slide_title, slide_text = slide
-        # Use empty footer so the intro card doesn't mirror the following song item's
-        # footer (which starts with the same song title), causing near-duplicates.
-        return _replace_custom_item_text(service_data, holder_marker, slide_title, slide_text, footer=[""])
+        slide_title, slide_text, slide_credits = slide
+        return _replace_custom_item_text(service_data, holder_marker, slide_title, slide_text, credits=slide_credits)
 
     song_index = None
 
@@ -1296,7 +1300,7 @@ def build_markdown_and_writer_outputs(
                 logging.warning(f"Writer template not found: {writer_template_path}")
                 writer_results[church] = None
             else:
-                writer_out = year_dir / f"{Path(writer_template_name).stem}--{date_slug}.odt"
+                writer_out = year_dir / f"{date_slug}-{Path(writer_template_name).stem}.odt"
                 with zipfile.ZipFile(writer_template_path, 'r') as zin:
                     with zipfile.ZipFile(writer_out, 'w') as zout:
                         for item in zin.infolist():
