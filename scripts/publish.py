@@ -188,7 +188,6 @@ def _replace_custom_item_text(
             header["footer"] = footer
         else:
             header["footer"] = [credits] if credits else [""]
-        header["data"] = {"title": new_title, "credits": credits}
         svc["data"] = [{
             "title": new_title[:30],
             "raw_slide": new_text,
