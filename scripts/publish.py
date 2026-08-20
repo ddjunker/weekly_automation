@@ -1264,10 +1264,10 @@ def build_markdown_and_writer_outputs(
 
     date_slug = _get_date_slug(master_md)
 
-    year_dir = None
+    bulletin_dir = None
     if run_writer:
         writer_info = build_librewriter_outputs(master_path=master_path, strict=strict, verbose=verbose)
-        year_dir = writer_info["year_dir"]
+        bulletin_dir = writer_info["bulletin_dir"]
 
     speaker_results = {}
     writer_results = {}
@@ -1292,14 +1292,14 @@ def build_markdown_and_writer_outputs(
             speaker_results[church] = RenderResult(md_out, md_warnings)
 
         if run_writer:
-            assert year_dir is not None
+            assert bulletin_dir is not None
             writer_template_name = templates[f"{church}_writer"]
-            writer_template_path = year_dir / writer_template_name
+            writer_template_path = bulletin_dir / writer_template_name
             if not writer_template_path.exists():
                 logging.warning(f"Writer template not found: {writer_template_path}")
                 writer_results[church] = None
             else:
-                writer_out = year_dir / f"{date_slug}-{Path(writer_template_name).stem}.odt"
+                writer_out = bulletin_dir / f"{date_slug}-{Path(writer_template_name).stem}.odt"
                 with zipfile.ZipFile(writer_template_path, 'r') as zin:
                     with zipfile.ZipFile(writer_out, 'w') as zout:
                         for item in zin.infolist():
@@ -1809,8 +1809,8 @@ def _liturgist_output_path(worship_dir: Path, date_slug: str) -> Path:
 
 def build_librewriter_outputs(*, master_path: Path | None = None, strict: bool = False, verbose: bool = False):
     """
-    Access the appropriate subdirectory under bulletin_dir based on the year in {cal_date}.
-    This will be expanded to generate Writer files from templates in that subdirectory.
+    Access bulletin_dir and list Writer templates/documents from that directory.
+    This will be expanded to generate Writer files from templates in this directory.
     """
     if master_path is None:
         raise ValueError("master_path must be provided")
@@ -1818,48 +1818,19 @@ def build_librewriter_outputs(*, master_path: Path | None = None, strict: bool =
         raise FileNotFoundError(f"Master.md not found at: {master_path}")
 
     master_md = read_text(master_path)
-    cal_date = extract_block(master_md, "cal_date").strip()
-    if not cal_date:
-        raise ValueError("{cal_date} not found in master file")
-
-
-    # Try to parse the year from cal_date (supporting multiple formats)
-    year = None
-    date_formats = [
-        "%Y-%m-%d",
-        "%B %d, %Y",  # e.g., January 25, 2026
-        "%b %d, %Y",  # e.g., Jan 25, 2026
-        "%m/%d/%Y",
-        "%d-%b-%Y",
-        "%d %B %Y",
-    ]
-    for fmt in date_formats:
-        try:
-            year = datetime.strptime(cal_date, fmt).year
-            break
-        except Exception:
-            continue
-    if not year:
-        # fallback: try to extract a 4-digit year
-        m = re.search(r"(20\d{2})", cal_date)
-        if m:
-            year = m.group(1)
-        else:
-            raise ValueError(f"Could not determine year from cal_date: {cal_date}")
-
     bulletin_dir = getattr(config, "bulletin_dir", None)
     if bulletin_dir is None or not bulletin_dir:
         raise ValueError("bulletin_dir is not configured in weekly_config.ini")
 
-    year_dir = Path(bulletin_dir) / str(year)
-    if not year_dir.exists():
-        raise FileNotFoundError(f"Bulletin year directory does not exist: {year_dir}")
+    bulletin_path = Path(bulletin_dir)
+    if not bulletin_path.exists():
+        raise FileNotFoundError(f"Bulletin directory does not exist: {bulletin_path}")
 
-    # List all files in the year directory (LibreOffice templates and Writer docs)
-    files = list(year_dir.glob("*.ott")) + list(year_dir.glob("*.odt"))
+    # List all files in bulletin_dir (LibreOffice templates and Writer docs)
+    files = list(bulletin_path.glob("*.ott")) + list(bulletin_path.glob("*.odt"))
 
     # For now, just return the directory and file list (stub for future expansion)
-    return {"year_dir": year_dir, "files": files}
+    return {"bulletin_dir": bulletin_path, "files": files}
 
 
 # -----------------------------------------------------------------------------
