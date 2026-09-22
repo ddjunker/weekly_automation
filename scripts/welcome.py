@@ -415,7 +415,9 @@ def main(argv=None):
     args = parser.parse_args(argv_list)
     init_logging(verbose=args.verbose)
 
-    master_arg = (args.master_flag or args.master or "data/Master.md").strip()
+    master_arg = (args.master_flag or args.master).strip()
+    if not master_arg:
+        raise SystemExit("Master markdown path is required (e.g. welcome.py \"Master 2025-11-23.md\")")
 
     projection_dir = getattr(config, "projection_pics_dir", Path(""))
     if not projection_dir:

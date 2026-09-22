@@ -365,7 +365,18 @@ def _write_text_check_report(master_path: Path, results: list[dict]) -> Path:
 
 def main():
     parser = argparse.ArgumentParser(description="Weekly Automation Text Gatherer")
-    parser.add_argument("--master", required=True)
+    parser.add_argument(
+        "master",
+        nargs="?",
+        default="",
+        help="Master markdown filename or path",
+    )
+    parser.add_argument(
+        "--master",
+        dest="master_flag",
+        default="",
+        help="Master markdown filename or path (same as positional master)",
+    )
     parser.add_argument("--open-output", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("-s", action="store_true", help="Update scripture placeholders only")
@@ -386,7 +397,11 @@ def main():
     run_a = run_all or args.a
     run_w = run_all or args.w
 
-    master_path = resolve_master_path(args.master)
+    master_arg = (args.master_flag or args.master).strip()
+    if not master_arg:
+        raise SystemExit("Master markdown path is required (e.g. text_gather.py \"Master 2025-11-23.md\")")
+
+    master_path = resolve_master_path(master_arg)
     if not master_path.exists():
         raise SystemExit(f"Master file not found: {master_path}")
 

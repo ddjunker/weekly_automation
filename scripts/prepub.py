@@ -7,9 +7,9 @@ Reads the Master markdown and validates that all referenced resources
 without writing anything. Writes a report file for each section checked.
 
 Usage:
-    python scripts/prepub.py --master "Master 2025-11-23.md"        # both
-    python scripts/prepub.py --master "Master 2025-11-23.md" -t     # text only
-    python scripts/prepub.py --master "Master 2025-11-23.md" -m     # music only
+    python scripts/prepub.py "Master 2025-11-23.md"        # both
+    python scripts/prepub.py "Master 2025-11-23.md" -t     # text only
+    python scripts/prepub.py "Master 2025-11-23.md" -m     # music only
 """
 
 import argparse
@@ -41,7 +41,18 @@ def _print_issues(results: list[dict], key: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pre-publication resource checks")
-    parser.add_argument("--master", required=True, help="Master markdown filename or path")
+    parser.add_argument(
+        "master",
+        nargs="?",
+        default="",
+        help="Master markdown filename or path",
+    )
+    parser.add_argument(
+        "--master",
+        dest="master_flag",
+        default="",
+        help="Master markdown filename or path (same as positional master)",
+    )
     parser.add_argument("-t", action="store_true",
                         help="Check text resources (scripture, CtW, AoF)")
     parser.add_argument("-m", action="store_true",
@@ -58,7 +69,11 @@ def main() -> None:
     run_t = run_all or args.t
     run_m = run_all or args.m
 
-    master_path = resolve_master_path(args.master)
+    master_arg = (args.master_flag or args.master).strip()
+    if not master_arg:
+        raise SystemExit("Master markdown path is required (e.g. prepub.py \"Master 2025-11-23.md\")")
+
+    master_path = resolve_master_path(master_arg)
     if not master_path.exists():
         raise SystemExit(f"Master file not found: {master_path}")
 

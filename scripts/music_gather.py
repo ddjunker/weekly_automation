@@ -393,7 +393,18 @@ def _write_music_check_report(master_path: Path, results: list[dict]) -> Path:
 
 def main():
     parser = argparse.ArgumentParser(description="Weekly Automation: music retrieval")
-    parser.add_argument("--master", required=True, help="Master markdown filename or path")
+    parser.add_argument(
+        "master",
+        nargs="?",
+        default="",
+        help="Master markdown filename or path",
+    )
+    parser.add_argument(
+        "--master",
+        dest="master_flag",
+        default="",
+        help="Master markdown filename or path (same as positional master)",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
@@ -402,7 +413,11 @@ def main():
         format="%(levelname)s: %(message)s",
     )
 
-    master_path = resolve_master_path(args.master)
+    master_arg = (args.master_flag or args.master).strip()
+    if not master_arg:
+        raise SystemExit("Master markdown path is required (e.g. music_gather.py \"Master 2025-11-23.md\")")
+
+    master_path = resolve_master_path(master_arg)
     if not master_path.exists():
         raise SystemExit(f"Master file not found: {master_path}")
 

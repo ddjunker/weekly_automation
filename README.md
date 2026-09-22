@@ -119,11 +119,11 @@ Example workflow:
 
 ```bash
 # 1. Pre-publication checks (read-only, writes report files)
-python3 -m scripts.prepub --master "Master 2025-11-23.md"
+python3 -m scripts.prepub "Master 2025-11-23.md"
 
 # 2. Gather text and music into the master file
-python3 -m scripts.text_gather --master "Master 2025-11-23.md"
-python3 -m scripts.music_gather --master "Master 2025-11-23.md"
+python3 -m scripts.text_gather "Master 2025-11-23.md"
+python3 -m scripts.music_gather "Master 2025-11-23.md"
 
 # 3. Export welcome slides
 python3 -m scripts.welcome "Master 2025-11-23.md"
@@ -172,13 +172,13 @@ Flags may be combined. Omitting all flags runs everything.
 
 ```bash
 # Scripture only
-python3 -m scripts.text_gather --master "Master 2025-11-23.md" -s
+python3 -m scripts.text_gather "Master 2025-11-23.md" -s
 
 # CtW and AoF only (no browser)
-python3 -m scripts.text_gather --master "Master 2025-11-23.md" -c -a
+python3 -m scripts.text_gather "Master 2025-11-23.md" -c -a
 
 # Offertory and benediction only
-python3 -m scripts.text_gather --master "Master 2025-11-23.md" -w
+python3 -m scripts.text_gather "Master 2025-11-23.md" -w
 ```
 
 ### publish.py output switches
