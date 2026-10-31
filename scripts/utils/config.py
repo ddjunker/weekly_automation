@@ -37,15 +37,15 @@ class Config:
         if platform_section in self._parser:
             paths.update(self._parser[platform_section])
 
-        # Helper to expand env vars and ~, returning a Path. Missing keys
-        # yield an empty Path() which is falsy for .exists() checks.
-        def _p(key: str) -> Path:
-            raw = paths.get(key, "")
+        # Expand env vars and ~, returning a Path — or None when the key is blank.
+        # It used to return Path(""), which is Path("."): truthy, and .exists() is
+        # True, so a `if not some_dir` guard could never fire and a missing
+        # bulletin_dir would have written .odt files into the current directory.
+        def _p(key: str) -> Path | None:
+            raw = (paths.get(key) or "").strip()
             if not raw:
-                return Path("")
-            expanded = os.path.expandvars(raw)
-            expanded = os.path.expanduser(expanded)
-            return Path(expanded)
+                return None
+            return Path(os.path.expanduser(os.path.expandvars(raw)))
 
         # Exported values (all converted to Path objects)
 
@@ -56,12 +56,8 @@ class Config:
         self.elkton_root = _p("elkton_openlp_root")
         self.lb_root = _p("lb_openlp_root")
 
-        # These may be left blank in favor of root-relative discovery.
-        self.elkton_songs_db = _p("elkton_songs_db")
-        self.lb_songs_db = _p("lb_songs_db")
-
-        self.elkton_bible_db = _p("elkton_bible_db")
-        self.lb_bible_db = _p("lb_bible_db")
+        # Song and Bible databases are always discovered under the OpenLP roots
+        # (see utils/openlp.py), so the *_songs_db / *_bible_db ini keys are not read.
 
         # Welcome slide / GIMP integration
         self.projection_pics_dir = _p("projection_pics_dir")
@@ -82,6 +78,19 @@ class Config:
 
 # Instantiate global singleton
 config = Config()
+
+
+def require_dir(path: Path | None, key: str) -> Path:
+    """
+    Return an existing directory or explain which weekly_config.ini key to set.
+    One message, instead of each caller inventing its own check.
+    """
+    if path is None:
+        raise FileNotFoundError(f"weekly_config.ini has no value for '{key}'")
+    expanded = path.expanduser()
+    if not expanded.exists():
+        raise FileNotFoundError(f"Directory for '{key}' not found: {expanded}")
+    return expanded
 
 
 def resolve_master_path(master_arg: str) -> Path:

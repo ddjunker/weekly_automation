@@ -21,17 +21,22 @@ PWTimeout = playwright_sync_api.TimeoutError
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.utils.config import config, resolve_master_path
+from scripts.utils.cli import resolve_master_or_exit, start_logging
+from scripts.utils.config import config
+from scripts.utils.file_io import backup_file, write_text_atomic
 from scripts.utils.placeholder import (
+    PlaceholderNotFound,
     append_below_placeholder,
     extract_block,
     has_placeholder,
+    omitted_marker,
+    write_block,
 )
-from scripts.utils.text_clean import clean_markdown, clean_text, xml_to_text
+from scripts.utils.text_clean import clean_text, xml_to_text
 from scripts.utils.openlp import (
+    find_custom_slides,
     get_scripture_text,
-    list_custom_slides,
-    load_custom_slide
+    load_custom_slide,
 )
 
 
@@ -141,7 +146,10 @@ def capture_clipboard(page, label: str, url: str) -> str:
 
 
 def extract_clean(md: str, key: str) -> str:
+    """Flattened, cleaned master value. 'omit'/'delete' blocks come back empty."""
     raw = extract_block(md, key)
+    if omitted_marker(raw):
+        return ""
 
     if isinstance(raw, (list, tuple)):
         parts = raw
@@ -186,13 +194,7 @@ def _append_slide_matches(md: str, church: str, placeholder_key: str, prefix: st
     inserting diagnostics into the markdown.
     When exact=True, only slides whose normalized title equals prefix are matched.
     """
-    prefix_clean = clean_text(prefix).lower().replace(",", "")
-    slides = list_custom_slides(church)  # [{uuid:int,title:str}, ...]
-
-    if exact:
-        matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "") == prefix_clean]
-    else:
-        matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
+    matches = find_custom_slides(church, prefix, exact=exact)
 
     if not matches:
         return append_below_placeholder(md, placeholder_key, f"[No {label} match found for '{prefix}' in {church}]")
@@ -233,9 +235,7 @@ def gather_custom_slides(md: str, run_ctw: bool = True, run_aof: bool = True) ->
 
             # Populate {aof_title} from the credits of the first Elkton match
             if church == "elkton" and has_placeholder(md, "aof_title"):
-                prefix_clean = clean_text(aof_prefix).lower()
-                matches = [s for s in list_custom_slides("elkton")
-                           if clean_text(s["title"]).lower().startswith(prefix_clean)]
+                matches = find_custom_slides("elkton", aof_prefix)
                 if matches:
                     slide = load_custom_slide("elkton", matches[0]["uuid"])
                     credits = slide["credits"] if slide else ""
@@ -249,6 +249,21 @@ def gather_custom_slides(md: str, run_ctw: bool = True, run_aof: bool = True) ->
 
 # ---------------- Scripture Retrieval ----------------
 
+# Placeholders a run wanted to write but the master does not have. Collected so
+# the end of the run can say so instead of dropping the fetched text in silence.
+MISSING_PLACEHOLDERS: list[str] = []
+
+
+def set_block(md: str, placeholder: str, content: str) -> str:
+    """Write a gathered value, replacing anything already under the placeholder."""
+    try:
+        return write_block(md, placeholder, content)
+    except PlaceholderNotFound:
+        if placeholder not in MISSING_PLACEHOLDERS:
+            MISSING_PLACEHOLDERS.append(placeholder)
+        return md
+
+
 def gather_scripture_text(md: str) -> str:
     for idx in (1, 2, 3):
         key = f"scripture_ref_{idx}"
@@ -259,20 +274,20 @@ def gather_scripture_text(md: str) -> str:
         for church in ("elkton", "lb"):
             try:
                 text = get_scripture_text(church, ref)
-                md = append_below_placeholder(md, f"{key}_{church}", text)
+                md = set_block(md, f"{key}_{church}", text)
             except Exception as e:
-                md = append_below_placeholder(
+                md = set_block(
                     md, f"{key}_{church}",
                     f"[Scripture fetch error for {ref} in {church}: {e}]"
                 )
             # Only for idx=3 and church=elkton, normalize reference
             if idx == 3 and church == "elkton":
                 book, chapter, verses = normalize_reference(ref)
-                md = append_below_placeholder(md, f"{key}_{church}_book", book)
-                md = append_below_placeholder(md, f"{key}_{church}_chapter", chapter)
-                md = append_below_placeholder(md, f"{key}_{church}_verses", verses)
+                md = set_block(md, f"{key}_{church}_book", book)
+                md = set_block(md, f"{key}_{church}_chapter", chapter)
+                md = set_block(md, f"{key}_{church}_verses", verses)
                 verse_start = re.match(r"\d+", verses)
-                md = append_below_placeholder(
+                md = set_block(
                     md, f"{key}_{church}_verses_start",
                     verse_start.group(0) if verse_start else verses,
                 )
@@ -310,9 +325,7 @@ def _check_custom_slides(md: str, check_ctw: bool = True, check_aof: bool = True
     for church in ("elkton", "lb"):
         if check_ctw and ctw_ref:
             prefix = f"CtW {ctw_ref}"
-            prefix_clean = clean_text(prefix).lower().replace(",", "")
-            matches = [s for s in list_custom_slides(church)
-                       if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
+            matches = find_custom_slides(church, prefix)
             if not matches:
                 results.append({"section": "CtW", "item": prefix, "church": church,
                                 "status": "MISSING", "detail": "No match found"})
@@ -323,9 +336,7 @@ def _check_custom_slides(md: str, check_ctw: bool = True, check_aof: bool = True
 
         if check_aof and aof_ref:
             prefix = f"AoF p{aof_ref}"
-            prefix_clean = clean_text(prefix).lower()
-            matches = [s for s in list_custom_slides(church)
-                       if clean_text(s["title"]).lower().startswith(prefix_clean)]
+            matches = find_custom_slides(church, prefix)
             if not matches:
                 results.append({"section": "AoF", "item": prefix, "church": church,
                                 "status": "MISSING", "detail": "No match found"})
@@ -371,12 +382,6 @@ def main():
         default="",
         help="Master markdown filename or path",
     )
-    parser.add_argument(
-        "--master",
-        dest="master_flag",
-        default="",
-        help="Master markdown filename or path (same as positional master)",
-    )
     parser.add_argument("--open-output", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("-s", action="store_true", help="Update scripture placeholders only")
@@ -385,10 +390,7 @@ def main():
     parser.add_argument("-w", action="store_true", help="Update offertory and benediction placeholders only")
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s"
-    )
+    start_logging(args)
 
     # If no section flags are given, run everything
     run_all = not any([args.s, args.c, args.a, args.w])
@@ -397,13 +399,7 @@ def main():
     run_a = run_all or args.a
     run_w = run_all or args.w
 
-    master_arg = (args.master_flag or args.master).strip()
-    if not master_arg:
-        raise SystemExit("Master markdown path is required (e.g. text_gather.py \"Master 2025-11-23.md\")")
-
-    master_path = resolve_master_path(master_arg)
-    if not master_path.exists():
-        raise SystemExit(f"Master file not found: {master_path}")
+    master_path = resolve_master_or_exit(args, script="text_gather.py")
 
     md = master_path.read_text(encoding="utf-8")
 
@@ -447,13 +443,13 @@ def main():
             context.close()
 
         if off1:
-            md = append_below_placeholder(md, "offertory_source_text", off1)
+            md = set_block(md, "offertory_source_text", off1)
         if off2:
-            md = append_below_placeholder(md, "offertory_source_alt_text", off2)
+            md = set_block(md, "offertory_source_alt_text", off2)
         if ben1:
-            md = append_below_placeholder(md, "benediction_text", ben1)
+            md = set_block(md, "benediction_text", ben1)
         if ben2:
-            md = append_below_placeholder(md, "benediction_text_alt", ben2)
+            md = set_block(md, "benediction_text_alt", ben2)
 
     if run_s:
         md = gather_scripture_text(md)
@@ -461,8 +457,16 @@ def main():
     if run_c or run_a:
         md = gather_custom_slides(md, run_ctw=run_c, run_aof=run_a)
 
-    master_path.write_text(md, encoding="utf-8")
-    print(f"\nUpdated: {master_path}\n")
+    backup = backup_file(master_path, tag="text_gather")
+    write_text_atomic(master_path, md)
+    print(f"\nUpdated: {master_path}")
+    if backup:
+        print(f"Previous version: {backup}")
+    if MISSING_PLACEHOLDERS:
+        print("\nNot written - the master has no such placeholder:")
+        for name in MISSING_PLACEHOLDERS:
+            print(f"   {{{name}}}")
+    print()
     if args.open_output:
         import os, sys
         if sys.platform.startswith("win"):

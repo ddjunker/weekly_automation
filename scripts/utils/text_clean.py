@@ -67,8 +67,6 @@ def normalize_whitespace(text: str) -> str:
     return "\n".join(lines)
 
 
-def dedent_strip(text: str) -> str:
-    return dedent(text).strip()
 
 
 # ---------------------------------------------------------------------------

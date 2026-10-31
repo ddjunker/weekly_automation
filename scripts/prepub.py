@@ -20,7 +20,7 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.utils.config import resolve_master_path
+from scripts.utils.cli import resolve_master_or_exit, start_logging
 from scripts.utils.openlp import build_song_index
 from scripts.music_gather import (
     check_master,
@@ -47,12 +47,6 @@ def main() -> None:
         default="",
         help="Master markdown filename or path",
     )
-    parser.add_argument(
-        "--master",
-        dest="master_flag",
-        default="",
-        help="Master markdown filename or path (same as positional master)",
-    )
     parser.add_argument("-t", action="store_true",
                         help="Check text resources (scripture, CtW, AoF)")
     parser.add_argument("-m", action="store_true",
@@ -60,22 +54,13 @@ def main() -> None:
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s",
-    )
+    start_logging(args)
 
     run_all = not (args.t or args.m)
     run_t = run_all or args.t
     run_m = run_all or args.m
 
-    master_arg = (args.master_flag or args.master).strip()
-    if not master_arg:
-        raise SystemExit("Master markdown path is required (e.g. prepub.py \"Master 2025-11-23.md\")")
-
-    master_path = resolve_master_path(master_arg)
-    if not master_path.exists():
-        raise SystemExit(f"Master file not found: {master_path}")
+    master_path = resolve_master_or_exit(args, script="prepub.py")
 
     md = master_path.read_text(encoding="utf-8")
 

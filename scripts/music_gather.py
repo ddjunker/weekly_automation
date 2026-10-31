@@ -1,27 +1,22 @@
 #!/usr/bin/env python3
 """
-music_gather.py – Weekly Automation music retrieval module
+music_gather.py - fills the song text placeholders in the master markdown.
 
-Responsibilities
-----------------
-• Fill in song text/XML placeholders in the Master markdown file:
-    - Opening songs: use CCLI plaintext lyrics (from config.ccli_dir)
-      {song_opening_title_elkton}  →  {song_opening_text_elkton}
-      {song_opening_title_lb}      →  {song_opening_text_lb}
+Each of the three slots (opening, middle, closing) is routed by its id, for both
+churches:
 
-    - Middle songs: use OpenLP songs DB (via utils.openlp)
-      {song_middle_title_elkton}
-      {song_middle_id_elkton}      →  {song_middle_text_elkton}
-      (and LB equivalents)
+    {song_<slot>_id_<church>} parses as a hymnal reference (r/b/k + number)
+        -> OpenLP songs database, rendered as labelled verse/chorus markdown
+    anything else (a performer name, a video)
+        -> CCLI plain-text lyrics from config.ccli_dir, by title
+    a skip marker ('tbd', 'omit', 'congregational choice')
+        -> left alone
 
-    - Closing songs: same as middle songs, with LB special-case
-      "Congregational choice" (skip lookup for LB).
+Verse selection comes from {song_<slot>_vv_<church>}; publish reads the same field
+for the projected song, so the printed script and the screen agree.
 
-• All paths come from weekly_config.ini via utils.config.Config.
-• All file IO via utils.file_io.
-• Placeholder handling via utils.placeholder.
-• Text cleaning via utils.text_clean.
-• OpenLP access via utils.openlp (build_song_index, load_song).
+Writes are idempotent: re-running replaces a slot's text rather than appending a
+second copy, and the master is backed up first.
 """
 
 from __future__ import annotations
@@ -36,13 +31,21 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.utils.config import config, resolve_master_path
-from scripts.utils.file_io import read_text, write_text
+from scripts.utils.cli import resolve_master_or_exit, start_logging
+from scripts.utils.config import config
+from scripts.utils.file_io import backup_file, read_text, write_text, write_text_atomic
 from scripts.utils.placeholder import (
-    append_below_placeholder,
+    PlaceholderNotFound,
     extract_block,
+    write_block,
 )
 from scripts.utils.text_clean import clean_markdown, clean_text, xml_to_text
+from scripts.utils.hymnal import (
+    hymnal_name,
+    is_skip_marker,
+    parse_song_ref,
+    read_verse_filter,
+)
 from scripts.utils.openlp import build_song_index, load_song, song_xml_to_labeled_markdown
 
 
@@ -50,16 +53,6 @@ from scripts.utils.openlp import build_song_index, load_song, song_xml_to_labele
 # =====================================================================
 # Standardized diagnostic insertion
 # =====================================================================
-
-def append_missing(md: str, placeholder: str, title: str, church: str, reason: str) -> str:
-    """
-    Standardized diagnostic insertion for missing songs.
-    Example message:
-        [Missing song for elkton: Amazing Grace — invalid song ID]
-    """
-    msg = f"[Missing song for {church}: {title} — {reason}]"
-    return append_below_placeholder(md, placeholder, msg)
-
 
 # =====================================================================
 # CCLI plaintext lyrics (from config.ccli_dir)
@@ -86,7 +79,28 @@ def get_ccli_lyrics(title: str) -> str | None:
     if not raw:
         return None
 
-    return clean_markdown(raw)
+    return label_ccli_song_parts(clean_markdown(raw))
+
+
+# A CCLI section label alone on its line: "Verse 1", "Chorus", "Pre-Chorus 2",
+# "BRIDGE", "Tag:". Lyric lines that merely start with one of these words
+# ("Chorus of angels singing") are not labels and stay as they are.
+_CCLI_PART_LABEL_RE = re.compile(
+    r"^(?:verse|chorus|pre-?chorus|post-?chorus|bridge|ending|tag|intro|outro"
+    r"|interlude|refrain|coda|instrumental|vamp)(?:\s+\d+)?\s*:?$",
+    re.IGNORECASE,
+)
+
+
+def label_ccli_song_parts(text: str) -> str:
+    """Turn CCLI section labels into ### headings, matching the hymn markdown."""
+    lines = []
+    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        stripped = line.strip()
+        if _CCLI_PART_LABEL_RE.match(stripped):
+            line = f"### {stripped}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 # =====================================================================
@@ -94,83 +108,11 @@ def get_ccli_lyrics(title: str) -> str | None:
 # =====================================================================
 
 def hymnal_from_prefix(church: str, prefix: str) -> str | None:
-    """
-    Map the R/B/K prefix in IDs to the proper OpenLP hymnal name
-    for each church.
-    """
-    prefix = prefix.lower()
-    church = church.lower()
-
-    if church == "elkton":
-        match prefix:
-            case "r":
-                return "United Methodist Hymnal"
-            case "b":
-                return "The Singing Church"
-
-
-    elif church == "lb":
-        match prefix:
-            case "r":
-                return "United Methodist Hymnal"
-            case "b":
-                return "Hymns of Faith"
-            case "k":
-                return "The Faith We Sing"
-
-    logging.error("Unknown hymnal prefix %r for %s", prefix, church)
-    return None
-
-
-# =====================================================================
-# Song ID parsing
-# =====================================================================
-
-@dataclass
-class ParsedSongID:
-    prefix: str              # r / b / k
-    entry: str               # numeric hymnal entry, as string
-    verses: list[int] | None # optional requested verses list
-
-
-def parse_song_id(raw: str | None, title_for_log: str = "") -> ParsedSongID | None:
-    """
-    Parse IDs like:
-        'r 123'
-        'B218 vv 1-3,5'
-        'k 42 vv 1, 3, 5-7'
-
-    Returns ParsedSongID or None on failure.
-    """
-    if raw is None:
-        return None
-
-    # Strip comment-style suffix (%% …)
-    base = raw.split("%%", 1)[0]
-    cleaned = clean_text(base)
-    if not cleaned:
-        return None
-
-    pattern = re.compile(
-        r"([rbk])\s*(\d+)(?:\s+v+v?\s+(.+))?$",
-        re.IGNORECASE,
-    )
-    m = pattern.match(cleaned)
-    if not m:
-        logging.warning("Could not parse song id %r for title %r", raw, title_for_log)
-        return None
-
-    prefix = m.group(1).lower()
-    entry_str = m.group(2)
-    verses_raw = m.group(3)
-
-    verses: list[int] | None = None
-    if verses_raw:
-        nums = re.findall(r"\d+", verses_raw)
-        if nums:
-            verses = [int(n) for n in nums]
-
-    return ParsedSongID(prefix=prefix, entry=entry_str, verses=verses)
+    """Deprecated alias for utils.hymnal.hymnal_name, kept for existing callers."""
+    name = hymnal_name(church, prefix)
+    if not name:
+        logging.error("Unknown hymnal prefix %r for %s", prefix, church)
+    return name
 
 
 # =====================================================================
@@ -184,13 +126,15 @@ def resolve_openlp_song(
     index: dict,
     title: str,
     id_raw: str | None,
+    verses_filter: tuple[int, ...] | None = None,
 ):
     """
     Given:
         church: 'elkton' or 'lb'
         index:  (hymnal, entry) → uuid (from build_song_index(church))
         title:  song title from Master (for diagnostics)
-        id_raw: like 'r 123 vv 1-3'
+        id_raw: like 'r 123'
+        verses_filter: verses to keep, from {song_<slot>_vv_<church>}
 
     Return:
         text string
@@ -205,11 +149,11 @@ def resolve_openlp_song(
     if not title and not id_raw:
         return "No valid song id for title ‘’"
 
-    parsed = parse_song_id(id_raw, title_for_log=title)
+    parsed = parse_song_ref(id_raw, title_for_log=title)
     if not parsed:
         return f"No valid song id for title {title!r}"
 
-    hymnal = hymnal_from_prefix(church, parsed.prefix)
+    hymnal = hymnal_name(church, parsed.prefix)
     if not hymnal:
         return f"Invalid hymnal prefix for {title!r}"
 
@@ -226,11 +170,12 @@ def resolve_openlp_song(
     if not lyrics_xml:
         return f"Lyrics not found for UUID {uuid}"
 
-    text = song_xml_to_labeled_markdown(lyrics_xml, verses_filter=parsed.verses)
+    verses = list(verses_filter) if verses_filter else None
+    text = song_xml_to_labeled_markdown(lyrics_xml, verses_filter=verses)
     if text is None:
         text = xml_to_text(lyrics_xml)
-        if parsed.verses:
-            verse_note = "Verses: " + ", ".join(map(str, parsed.verses))
+        if verses:
+            verse_note = "Verses: " + ", ".join(map(str, verses))
             text = f"{verse_note}\n\n{text}"
 
     return text.strip()
@@ -248,7 +193,8 @@ _OPENLP_ERROR_REASONS = {
 }
 
 
-def _gather_song_text(church: str, index: dict, title: str, id_raw: str | None) -> str:
+def _gather_song_text(church: str, index: dict, title: str, id_raw: str | None,
+                      verses_filter: tuple[int, ...] | None = None) -> str:
     """
     Route a single song slot to hymnal or praise-song lookup.
 
@@ -258,8 +204,8 @@ def _gather_song_text(church: str, index: dict, title: str, id_raw: str | None) 
 
     Always returns a non-empty string; error strings begin with "[Missing".
     """
-    if parse_song_id(id_raw or "", title_for_log=title):
-        result = resolve_openlp_song(church, index, title, id_raw)
+    if parse_song_ref(id_raw or "", title_for_log=title):
+        result = resolve_openlp_song(church, index, title, id_raw, verses_filter)
         for prefix, reason in _OPENLP_ERROR_REASONS.items():
             if result.startswith(prefix):
                 return f"[Missing song for {church}: {title} — {reason}]"
@@ -279,6 +225,9 @@ def process_master(md: str, elk_index: dict, lb_index: dict) -> str:
     Each slot is routed automatically: a hymnal ID (r/b/k + digits) triggers
     the OpenLP DB path with labeled verse/chorus headings; anything else
     (artist name, blank) triggers the CCLI plain-text path.
+
+    Verse selection comes from {song_<slot>_vv_<church>}, the same field publish
+    uses for the projected song, so the printed script and the screen agree.
     """
     for slot in ("opening", "middle", "closing"):
         for church, index in (("elkton", elk_index), ("lb", lb_index)):
@@ -292,13 +241,18 @@ def process_master(md: str, elk_index: dict, lb_index: dict) -> str:
             if not title and not sid:
                 continue
 
-            # LB closing special case: congregational choice → skip lookup.
-            if slot == "closing" and church == "lb" and title.lower() == "congregational choice":
+            # Skip markers (congregational choice, tbd, omit) mean "no lookup".
+            if is_skip_marker(title) or is_skip_marker(sid):
                 continue
 
-            text = _gather_song_text(church, index, title, sid)
+            text = _gather_song_text(
+                church, index, title, sid, read_verse_filter(md, slot, church)
+            )
             if text:
-                md = append_below_placeholder(md, text_key, text)
+                try:
+                    md = write_block(md, text_key, text)
+                except PlaceholderNotFound:
+                    logging.warning("Placeholder {%s} not in the master; song text not written", text_key)
 
     return md
 
@@ -307,9 +261,6 @@ def process_master(md: str, elk_index: dict, lb_index: dict) -> str:
 # =====================================================================
 # Dry-run check
 # =====================================================================
-
-_SKIP_MARKERS = {"omit", "tbd", "congregational choice"}
-
 
 def _has_unfilled_placeholder(val: str) -> bool:
     """Return True if val contains an unresolved {placeholder} token."""
@@ -341,14 +292,16 @@ def check_master(md: str, elk_index: dict, lb_index: dict) -> list[dict]:
                 })
                 continue
 
-            if title.lower() in _SKIP_MARKERS or sid.lower() in _SKIP_MARKERS:
+            if is_skip_marker(title) or is_skip_marker(sid):
                 marker = title or sid
                 results.append({"slot": slot, "church": church, "title": title or "—",
                                 "id": sid or "—", "status": "skipped", "detail": marker})
                 continue
 
-            if parse_song_id(sid or "", title_for_log=title):
-                result_text = resolve_openlp_song(church, index, title, sid)
+            if parse_song_ref(sid or "", title_for_log=title):
+                result_text = resolve_openlp_song(
+                    church, index, title, sid, read_verse_filter(md, slot, church)
+                )
                 status = "found"
                 detail = "Hymnal DB"
                 for prefix, reason in _OPENLP_ERROR_REASONS.items():
@@ -399,27 +352,12 @@ def main():
         default="",
         help="Master markdown filename or path",
     )
-    parser.add_argument(
-        "--master",
-        dest="master_flag",
-        default="",
-        help="Master markdown filename or path (same as positional master)",
-    )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s",
-    )
+    start_logging(args)
 
-    master_arg = (args.master_flag or args.master).strip()
-    if not master_arg:
-        raise SystemExit("Master markdown path is required (e.g. music_gather.py \"Master 2025-11-23.md\")")
-
-    master_path = resolve_master_path(master_arg)
-    if not master_path.exists():
-        raise SystemExit(f"Master file not found: {master_path}")
+    master_path = resolve_master_or_exit(args, script="music_gather.py")
 
     # Build song indexes once per church from OpenLP DB
     logging.info("Building OpenLP song indexes...")
@@ -431,8 +369,11 @@ def main():
     updated = process_master(md, elk_index, lb_index)
 
     if updated != md:
-        write_text(master_path, updated)
+        backup = backup_file(master_path, tag="music_gather")
+        write_text_atomic(master_path, updated)
         logging.info("Updated: %s", master_path)
+        if backup:
+            logging.info("Previous version: %s", backup)
     else:
         logging.info("No changes made.")
 

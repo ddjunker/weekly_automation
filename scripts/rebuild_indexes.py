@@ -19,7 +19,11 @@ Usage examples:
 """
 
 import argparse
+import sys
 from pathlib import Path
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.utils.config import config
 from scripts.utils.openlp import list_custom_slides
@@ -42,18 +46,14 @@ def rebuild_custom_index(church: str, out_path: Path):
 # ---------------------------------------------------------
 def rebuild_song_index(db_path: Path, out_path: Path):
     """
-    Placeholder — implement once your song index format is finalized.
-    This function is intentionally simple for now.
+    Not implemented yet. Deliberately writes nothing: this runs by default when no
+    flag is given, and it used to overwrite a real index file with a stub.
     """
     if not db_path.exists():
         print(f"[WARN] Song DB not found: {db_path}")
         return
 
-    out_path.write_text(
-        "# Song index generation is not yet implemented.\n",
-        encoding="utf-8"
-    )
-    print(f"[OK] Created placeholder song index → {out_path}")
+    print(f"[SKIP] Song index generation is not implemented; left {out_path} untouched")
 
 
 # ---------------------------------------------------------

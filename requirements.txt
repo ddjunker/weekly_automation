@@ -1,4 +1,3 @@
 playwright
 psutil
-PyYAML
 regex

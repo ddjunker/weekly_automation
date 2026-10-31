@@ -12,16 +12,36 @@ import json
 import shutil
 import zipfile
 import tempfile
-from copy import deepcopy
 from xml.etree import ElementTree as ET
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.utils.config import config
-from scripts.utils.file_io import read_text, write_text
+from scripts.utils.config import config, require_dir, resolve_master_path
+from scripts.utils.file_io import atomic_write, read_text, replace_file_atomic, write_text_atomic
 from scripts.utils.logging_utils import init_logging
-from scripts.utils.placeholder import extract_block, has_placeholder
+from scripts.utils.placeholder import (
+    extract_block,
+    has_placeholder,
+    master_value,
+    omitted_marker,
+)
+from scripts.utils.osz import (
+    find_service_item,
+    find_service_items,
+    has_service_item,
+    load_service_data,
+    remove_service_items,
+    write_service_data,
+)
+from scripts.utils.hymnal import (
+    SongRef,
+    hymnal_name,
+    intro_slide_prefix,
+    parse_song_ref,
+    read_verse_filter,
+)
+from scripts.utils.report import InjectionReport, render_summary
 from scripts.utils.text_clean import clean_text, clean_markdown
 
 # Add template mappings at the top so they are available to all functions
@@ -76,83 +96,30 @@ class RenderResult:
 
 def _load_service_data_from_osz(osz_path: Path) -> list:
     """Read service_data.osj from an OpenLP .osz file and return the parsed list."""
-    with zipfile.ZipFile(osz_path, "r") as zin:
-        if "service_data.osj" not in zin.namelist():
-            raise ValueError(f"service_data.osj not found in {osz_path}")
-        raw = zin.read("service_data.osj")
-    return json.loads(raw.decode("utf-8"))
+    return load_service_data(osz_path)
 
 
 def _write_service_data_to_osz(osz_path: Path, service_data: list) -> None:
-    """Write updated service_data.osj back to an OpenLP .osz, preserving other members.
+    """Write updated service_data.osj back to an OpenLP .osz, preserving other members."""
+    write_service_data(osz_path, service_data)
 
-    osz_path must already be on a local filesystem (e.g. /tmp) — never a FUSE
-    mount — so that zipfile can read the large AVI entries without hitting the
-    OneDrive 10MB sequential-read boundary.  Rebuilds the zip in a second temp
-    file then replaces osz_path in place.
+
+def _get_slide_text_for_prefix(church: str, prefix: str, exact: bool = False) -> tuple[str, list[str], str] | None:
     """
-    new_json = json.dumps(service_data, ensure_ascii=False).encode("utf-8")
-    with tempfile.NamedTemporaryFile(suffix=".osz", delete=False, dir=osz_path.parent) as tf:
-        tmp_path = Path(tf.name)
-    try:
-        with zipfile.ZipFile(osz_path, "r") as zin, \
-             zipfile.ZipFile(tmp_path, "w") as zout:
-            for item in zin.infolist():
-                if item.filename == "service_data.osj":
-                    zout.writestr(item, new_json)
-                else:
-                    with zin.open(item.filename) as src, zout.open(item, "w") as dst:
-                        shutil.copyfileobj(src, dst)
-        tmp_path.replace(osz_path)
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
-
-
-def _get_slide_text_for_prefix(church: str, prefix: str, exact: bool = False) -> tuple[str, str, str] | None:
-    """
-    Find a custom slide whose title starts with prefix and return (title, cleaned_text).
+    Find a custom slide whose title starts with prefix and return
+    (title, pages, credits), one page per slide the library record holds.
     When exact=True, only a slide whose normalized title equals prefix is accepted.
     """
-    from scripts.utils.openlp import list_custom_slides, load_custom_slide
-    from scripts.utils.text_clean import clean_text
+    from scripts.utils.openlp import get_custom_slide_pages
 
-    prefix_clean = clean_text(prefix).lower().replace(",", "")
-    slides = list_custom_slides(church)
-
-    if exact:
-        matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "") == prefix_clean]
-        chosen = matches[0] if matches else None
-    else:
-        matches = [s for s in slides if clean_text(s["title"]).lower().replace(",", "").startswith(prefix_clean)]
-        if not matches:
-            return None
-        # Prefer exact normalized title match if available.
-        chosen = next(
-            (s for s in matches if clean_text(s["title"]).lower().replace(",", "") == prefix_clean),
-            matches[0],
-        )
-
-    if not chosen:
-        return None
-
-    slide = load_custom_slide(church, chosen["uuid"])
-    if not slide or not isinstance(slide.get("raw_text"), str) or not slide["raw_text"].strip():
-        return None
-
-    from scripts.utils.openlp import extract_openlp_slide_text
-    text = extract_openlp_slide_text(slide["raw_text"])
-    if not text:
-        return None
-
-    return slide["raw_title"], text, slide.get("raw_credits", "")
+    return get_custom_slide_pages(church, prefix, exact=exact)
 
 
 def _replace_custom_item_text(
     service_data: list,
     marker_title: str,
     new_title: str,
-    new_text: str,
+    new_pages: list[str] | str,
     *,
     footer: list | None = None,
     credits: str = "",
@@ -161,94 +128,35 @@ def _replace_custom_item_text(
     Replace one custom service item (matched by header.title) with new custom-slide text.
     Returns True if an item was replaced.
 
-    credits: the Credits field from the source slide; used for header.data.credits and
-             as the footer when no explicit footer list is provided.
-    footer: explicit footer list; when None, defaults to [credits] (or [""] if no credits).
+    new_pages: one entry per projected slide. A library slide with several pages must
+               become several service slides — concatenating them yields one overfull
+               slide with a literal [===] marker printed in the middle.
+    credits: the Credits field from the source slide; used to build the footer
+             when no explicit footer list is provided.
+    footer: explicit footer list; when None, defaults to OpenLP's own
+            "<title> <credits>" footer string.
     """
-    marker = marker_title.strip().lower()
+    from scripts.utils.openlp import openlp_footer
 
-    for item in service_data:
-        svc = item.get("serviceitem")
-        if not isinstance(svc, dict):
-            continue
+    item = find_service_item(service_data, plugin="custom", title=marker_title)
+    if item is None:
+        return False
 
-        header = svc.get("header")
-        if not isinstance(header, dict):
-            continue
+    item.header["title"] = new_title
+    if footer is not None:
+        item.header["footer"] = footer
+    else:
+        # OpenLP parses credits back out of footer[0] as
+        # footer[0][len(title) + 1:]; any other shape breaks the library
+        # link, which disables Edit and makes OpenLP clone the slide.
+        item.header["footer"] = [openlp_footer(new_title, credits)]
 
-        if str(header.get("plugin", "")).lower() != "custom":
-            continue
-
-        title = str(header.get("title", "")).strip().lower()
-        if title != marker:
-            continue
-
-        header["title"] = new_title
-        if footer is not None:
-            header["footer"] = footer
-        else:
-            header["footer"] = [credits] if credits else [""]
-        svc["data"] = [{
-            "title": new_title[:30],
-            "raw_slide": new_text,
-            "verseTag": "1",
-        }]
-        return True
-
-    return False
-
-
-def _replace_custom_item_reference(service_data: list, marker_title: str, reference: str, scripture_text: str) -> bool:
-    """
-    Replace one custom service item (matched by header.title) with scripture content.
-    Uses the existing first-line prompt from the holder slide when present.
-    """
-    marker = marker_title.strip().lower()
-
-    for item in service_data:
-        svc = item.get("serviceitem")
-        if not isinstance(svc, dict):
-            continue
-
-        header = svc.get("header")
-        if not isinstance(header, dict):
-            continue
-
-        if str(header.get("plugin", "")).lower() != "custom":
-            continue
-
-        title = str(header.get("title", "")).strip().lower()
-        if title != marker:
-            continue
-
-        header["title"] = reference.strip()
-        header["footer"] = [f"{reference.strip()} "]
-
-        data = svc.get("data")
-        if not isinstance(data, list) or not data:
-            data = [{"title": "Reading", "raw_slide": "", "verseTag": "1"}]
-            svc["data"] = data
-
-        first = data[0] if isinstance(data[0], dict) else {}
-        raw = str(first.get("raw_slide", "") or "")
-        first_line = raw.splitlines()[0].strip() if raw else ""
-        if first_line.lower().endswith("_holder"):
-            first_line = ""
-
-        if first_line and first_line.lower() != reference.strip().lower():
-            new_raw = f"{first_line}\n{reference.strip()}\n\n{scripture_text.strip()}"
-        else:
-            new_raw = f"{reference.strip()}\n\n{scripture_text.strip()}"
-
-        first["raw_slide"] = new_raw
-        first.setdefault("title", (first_line or "Reading")[:30])
-        first.setdefault("verseTag", "1")
-        if not isinstance(data[0], dict):
-            data[0] = first
-
-        return True
-
-    return False
+    pages = [new_pages] if isinstance(new_pages, str) else list(new_pages)
+    item.svc["data"] = [
+        {"title": new_title[:30], "raw_slide": page, "verseTag": str(idx)}
+        for idx, page in enumerate(pages, start=1)
+    ]
+    return True
 
 
 def _replace_custom_item_second_line(service_data: list, marker_title: str, new_second_line: str) -> bool:
@@ -256,92 +164,77 @@ def _replace_custom_item_second_line(service_data: list, marker_title: str, new_
     For a custom slide matched by header.title, keep line 1 of raw_slide unchanged
     and replace line 2 with new_second_line.
     """
-    marker = marker_title.strip().lower()
+    item = find_service_item(service_data, plugin="custom", title=marker_title)
+    if item is None:
+        return False
+
+    data = item.svc.get("data")
+    if not isinstance(data, list) or not data:
+        return False
+
+    first = data[0] if isinstance(data[0], dict) else {}
+    lines = str(first.get("raw_slide", "") or "").splitlines()
+    if not lines:
+        return False
+
+    # Keep line 1, replace line 2, preserve any remaining lines.
     replacement = (new_second_line or "").strip()
+    if len(lines) == 1:
+        lines.append(replacement)
+    else:
+        lines[1] = replacement
 
-    for item in service_data:
-        svc = item.get("serviceitem")
-        if not isinstance(svc, dict):
-            continue
-
-        header = svc.get("header")
-        if not isinstance(header, dict):
-            continue
-
-        if str(header.get("plugin", "")).lower() != "custom":
-            continue
-
-        title = str(header.get("title", "")).strip().lower()
-        if title != marker:
-            continue
-
-        data = svc.get("data")
-        if not isinstance(data, list) or not data:
-            return False
-        first = data[0] if isinstance(data[0], dict) else {}
-
-        raw = str(first.get("raw_slide", "") or "")
-        lines = raw.splitlines()
-        if not lines:
-            return False
-
-        # Keep line 1, replace line 2, preserve any remaining lines.
-        if len(lines) == 1:
-            lines.append(replacement)
-        else:
-            lines[1] = replacement
-
-        first["raw_slide"] = "\n".join(lines)
-        if not isinstance(data[0], dict):
-            data[0] = first
-
-        return True
-
-    return False
+    first["raw_slide"] = "\n".join(lines)
+    data[0] = first
+    return True
 
 
-def _replace_offertory_prayer_content_and_credits(service_data: list, body_text: str, credit_text: str) -> bool:
+def _replace_offertory_prayer_content_and_credits(
+    service_data: list,
+    church: str,
+    body_text: str,
+    credit_text: str,
+) -> bool:
     """
-    Update the custom slide titled 'Offertory Prayer':
-            - Rebuild slide data from scratch to avoid retaining stale template text
-            - Replace body text with body_text
+    Update the custom slide whose title starts with 'Offertory Prayer' (templates
+    use suffixed titles such as 'Offertory Prayer - GBOD'):
+      - Rebuild slide data from scratch to avoid retaining stale template text
+      - Replace body text with body_text
       - Update header.footer so credits project from offertory_credit
+      - Write the same text into the church's custom slide library, so OpenLP's
+        Edit shows this week's prayer instead of the stored one
     """
+    from scripts.utils.openlp import credits_from_footer, openlp_footer, sync_custom_slide
+
     body = (body_text or "").strip()
     if not body:
         return False
 
     credits_raw = (credit_text or "").replace("\r\n", "\n").replace("\r", "\n")
-    credit_lines = [line.strip() for line in credits_raw.split("\n") if line.strip()]
+    credits = " ".join(line.strip() for line in credits_raw.split("\n") if line.strip())
 
-    for item in service_data:
-        svc = item.get("serviceitem")
-        if not isinstance(svc, dict):
-            continue
+    item = find_service_item(
+        service_data, plugin="custom", title="Offertory Prayer", match="prefix"
+    )
+    if item is None:
+        return False
 
-        header = svc.get("header")
-        if not isinstance(header, dict):
-            continue
+    # Keep the template's title: it is half of the key OpenLP uses to re-link the
+    # item to its library slide on load.
+    title = item.title
+    if not credits:
+        credits = credits_from_footer(title, item.header.get("footer"))
 
-        if str(header.get("plugin", "")).strip().lower() != "custom":
-            continue
+    slide_text = f"{{h}}Offertory Prayer{{/h}}\n\n{body}\n"
+    item.svc["data"] = [{
+        "title": "Offertory Prayer",
+        "raw_slide": slide_text,
+        "verseTag": "1",
+    }]
+    item.header["footer"] = [openlp_footer(title, credits)]
 
-        title = str(header.get("title", "")).strip().lower()
-        if title != "offertory prayer":
-            continue
-
-        svc["data"] = [{
-            "title": "Offertory Prayer",
-            "raw_slide": f"{{h}}Offertory Prayer{{/h}}\n\n{body}\n",
-            "verseTag": "1",
-        }]
-
-        footer_title = "Offertory Prayer"
-        header["title"] = footer_title
-        header["footer"] = [footer_title, *credit_lines] if credit_lines else [footer_title]
-        return True
-
-    return False
+    sync_custom_slide(church, title, credits, [slide_text])
+    return True
 
 
 def _format_benediction_slides_for_openlp(benediction_text: str) -> list[str] | None:
@@ -367,75 +260,47 @@ def _format_benediction_slides_for_openlp(benediction_text: str) -> list[str] | 
     return [slide_1, slide_2, slide_3]
 
 
-def _replace_benediction_custom_slide(service_data: list, benediction_text: str) -> bool:
+def _replace_benediction_custom_slide(service_data: list, church: str, benediction_text: str) -> bool:
     """
     Update custom slide titled 'Benediction':
       - Keep the first raw_slide line unchanged (heading/markup)
       - Replace body with formatted benediction content
+      - Write the same slides into the church's custom slide library, so OpenLP's
+        Edit shows this week's benediction instead of the stored one
     """
+    from scripts.utils.openlp import credits_from_footer, sync_custom_slide
+
     slides = _format_benediction_slides_for_openlp(benediction_text)
     if not slides:
         return False
 
-    for item in service_data:
-        svc = item.get("serviceitem")
-        if not isinstance(svc, dict):
-            continue
+    # Prefix match: a template that retitles this item "Benediction - Advent" must
+    # not silently keep last week's words, which is what exact matching allowed.
+    item = find_service_item(
+        service_data, plugin="custom", title="Benediction", match="prefix"
+    )
+    if item is None:
+        return False
 
-        header = svc.get("header")
-        if not isinstance(header, dict):
-            continue
-
-        if str(header.get("plugin", "")).strip().lower() != "custom":
-            continue
-
-        title = str(header.get("title", "")).strip().lower()
-        if title != "benediction":
-            continue
-
-        svc["data"] = [{
-            "title": "Benediction",
-            "raw_slide": slides[0],
-            "verseTag": "1",
-        }, {
-            "title": "Benediction",
-            "raw_slide": slides[1],
-            "verseTag": "2",
-        }, {
-            "title": "Benediction",
-            "raw_slide": slides[2],
-            "verseTag": "3",
-        }]
-
-        header["title"] = "Benediction"
-
-        return True
-
-    return False
+    title = item.title
+    item.svc["data"] = [
+        {"title": title[:30], "raw_slide": slide, "verseTag": str(idx)}
+        for idx, slide in enumerate(slides, start=1)
+    ]
+    sync_custom_slide(
+        church,
+        title,
+        credits_from_footer(title, item.header.get("footer")),
+        slides,
+    )
+    return True
 
 
 def _remove_service_items_by_marker(service_data: list, plugin: str, marker_title: str) -> int:
     """Remove all service items matching plugin + header.title (case-insensitive). Returns count removed."""
-    plugin = (plugin or "").strip().lower()
-    marker = (marker_title or "").strip().lower()
-    if not plugin or not marker:
+    if not (plugin or "").strip() or not (marker_title or "").strip():
         return 0
-
-    kept = []
-    removed = 0
-    for item in service_data:
-        svc = item.get("serviceitem") if isinstance(item, dict) else None
-        header = svc.get("header") if isinstance(svc, dict) else None
-        if isinstance(header, dict):
-            item_plugin = str(header.get("plugin", "")).strip().lower()
-            item_title = str(header.get("title", "")).strip().lower()
-            if item_plugin == plugin and item_title == marker:
-                removed += 1
-                continue
-        kept.append(item)
-
-    service_data[:] = kept
-    return removed
+    return remove_service_items(service_data, plugin=plugin, title=marker_title)
 
 
 def _build_openlyrics_xml(
@@ -531,22 +396,9 @@ def _replace_song_item_by_marker(
             for idx, chunk in enumerate(parts, start=1)
         ]
 
-    for item in service_data:
-        svc = item.get("serviceitem")
-        if not isinstance(svc, dict):
-            continue
-
-        header = svc.get("header")
-        if not isinstance(header, dict):
-            continue
-
-        if str(header.get("plugin", "")).strip().lower() != "songs":
-            continue
-
-        title = str(header.get("title", "")).strip().lower()
-        if title != marker:
-            continue
-
+    item = find_service_item(service_data, plugin="songs", title=marker_title)
+    if item is not None:
+        svc, header = item.svc, item.header
         header["title"] = new_title
         # Preserve configured CCLI license line from template footer when present.
         existing_footer = header.get("footer")
@@ -627,123 +479,16 @@ def _replace_song_item_by_marker(
 
 
 def _fetch_scripture_verses(church: str, passage: str) -> list[tuple[int, int, str]]:
-    """Fetch scripture verses as (chapter, verse, text) for a church Bible DB."""
-    from scripts.utils.openlp import get_bible_db, connect_sqlite
-    from scripts.utils.text_clean import full_scrub
+    """
+    Scripture verses as (chapter, verse, text).
 
-    db_path = get_bible_db(church)
-    conn = connect_sqlite(db_path)
-    cur = conn.cursor()
+    Thin wrapper over the one parser in utils.openlp — publish used to carry a
+    near-identical ~100-line copy, and the two had drifted over how a malformed
+    chapter number is handled.
+    """
+    from scripts.utils.openlp import fetch_scripture_verses
 
-    passage = _sanitize_scripture_reference_for_openlp(passage)
-    m = re.match(r"^([1-3]?\s?[A-Za-z ]+)\s+(.+)$", passage)
-    if not m:
-        conn.close()
-        raise ValueError(f"Unable to parse scripture reference: {passage}")
-
-    book, remainder = m.group(1).strip(), m.group(2).strip()
-    cur.execute("SELECT id FROM book WHERE TRIM(name) LIKE TRIM(?)", (book,))
-    row = cur.fetchone()
-    if not row:
-        cur.execute("SELECT id, name FROM book WHERE TRIM(name) LIKE ? ORDER BY name", (book + "%",))
-        rows = cur.fetchall()
-        if len(rows) == 1:
-            row = rows[0]
-    if not row:
-        conn.close()
-        raise ValueError(f"Book '{book}' not found in DB")
-    book_id = row["id"]
-
-    verses_out: list[tuple[int, int, str]] = []
-    last_chapter = None
-
-    for segment in remainder.split(";"):
-        segment = segment.strip()
-        if not segment:
-            continue
-
-        for part in segment.split(","):
-            part = part.strip()
-            if not part:
-                continue
-
-            if ":" in part:
-                chap_str, verse_expr = part.split(":", 1)
-                chapter = int(chap_str.strip())
-                last_chapter = chapter
-            else:
-                chapter = last_chapter
-                verse_expr = part
-
-            if chapter is None:
-                conn.close()
-                raise ValueError(f"Unable to determine chapter in scripture reference: {passage}")
-
-            verse_expr = verse_expr.strip()
-            if not verse_expr:
-                continue
-
-            if "-" in verse_expr:
-                v1_str, v2_str = verse_expr.split("-", 1)
-                v1 = int(v1_str.strip())
-                v2_str = v2_str.strip()
-                if ":" in v2_str:
-                    end_chap_str, end_verse_str = v2_str.split(":", 1)
-                    end_chapter = int(end_chap_str.strip())
-                    v2 = int(end_verse_str.strip())
-                    cur.execute(
-                        """
-                        SELECT chapter, verse, text
-                        FROM verse
-                        WHERE book_id=?
-                          AND ((chapter = ? AND verse >= ?)
-                               OR (chapter > ? AND chapter < ?)
-                               OR (chapter = ? AND verse <= ?))
-                        ORDER BY chapter, verse
-                        """,
-                        (book_id, chapter, v1, chapter, end_chapter, end_chapter, v2),
-                    )
-                    last_chapter = end_chapter
-                else:
-                    v2 = int(v2_str)
-                    cur.execute(
-                        """
-                        SELECT chapter, verse, text
-                        FROM verse
-                        WHERE book_id=? AND chapter=? AND verse BETWEEN ? AND ?
-                        ORDER BY verse
-                        """,
-                        (book_id, chapter, v1, v2),
-                    )
-            else:
-                v = int(verse_expr)
-                cur.execute(
-                    """
-                    SELECT chapter, verse, text
-                    FROM verse
-                    WHERE book_id=? AND chapter=? AND verse=?
-                    """,
-                    (book_id, chapter, v),
-                )
-
-            for r in cur.fetchall():
-                verses_out.append((int(r["chapter"]), int(r["verse"]), full_scrub(r["text"] or "")))
-
-    conn.close()
-    return verses_out
-
-
-def _sanitize_scripture_reference_for_openlp(reference: str) -> str:
-        """
-        Normalize scripture refs for OpenLP/DB parsing.
-
-        Keeps the original reference for bulletin/Obsidian display, but strips
-        verse-part letters immediately following numerals so int parsing works:
-            - Genesis 12:1-4a -> Genesis 12:1-4
-            - John 3:16b,17 -> John 3:16,17
-        """
-        cleaned = reference.replace("–", "-").replace("—", "-").strip()
-        return re.sub(r"(?<=\d)[A-Za-z]+(?=(?:\s|$|[-,;]))", "", cleaned)
+    return list(fetch_scripture_verses(church, passage))
 
 
 def _build_bible_slide_data(verses: list[tuple[int, int, str]]) -> list[dict]:
@@ -766,22 +511,12 @@ def _replace_bible_item_by_order(service_data: list, bible_order: int, reference
     Replace nth bibles-plugin item in service_data with a new passage from the church DB.
     bible_order is 1-based.
     """
-    bible_items = []
-    for item in service_data:
-        svc = item.get("serviceitem") if isinstance(item, dict) else None
-        if not isinstance(svc, dict):
-            continue
-        header = svc.get("header")
-        if not isinstance(header, dict):
-            continue
-        if str(header.get("plugin", "")).lower() == "bibles":
-            bible_items.append(svc)
-
+    bible_items = find_service_items(service_data, plugin="bibles")
     if len(bible_items) < bible_order:
         return False
 
-    svc = bible_items[bible_order - 1]
-    header = svc.get("header", {})
+    svc = bible_items[bible_order - 1].svc
+    header = bible_items[bible_order - 1].header
 
     verses = _fetch_scripture_verses(church, reference)
     if not verses:
@@ -805,101 +540,112 @@ def _replace_bible_item_by_order(service_data: list, bible_order: int, reference
     return True
 
 
-def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, master_md: str) -> None:
+def _has_service_item(service_data: list, plugin: str, title: str) -> bool:
+    """True when the template carries an item with this plugin and title."""
+    return has_service_item(service_data, plugin=plugin, title=title)
+
+
+def _inject_custom_slides_into_openlp_service(
+    osz_path: Path,
+    church: str,
+    master_md: str,
+    *,
+    communion: str = "",
+    template_name: str = "",
+    report: InjectionReport | None = None,
+) -> InjectionReport:
     """
-    Inject matching existing custom slides into copied OpenLP service archives:
-      - CtW for both churches
-      - AoF for Elkton
+    Fill a copied OpenLP service archive from the master: Call to Worship, Affirmation
+    of Faith, scripture, songs, readings, offertory prayer and benediction.
+
+    Returns an InjectionReport. Every step records a finding, so a step that matched
+    nothing is visible in the run summary instead of quietly leaving the template's
+    own content in the published service.
     """
     from scripts.utils.openlp import get_scripture_text
 
-    ctw_ref = extract_block(master_md, "ctw_ref").strip()
-    ctw_ref_church = extract_block(master_md, f"ctw_ref_{church}").strip()
-    aof_ref = extract_block(master_md, "aof_ref").strip()
-    scripture_ref_1 = extract_block(master_md, "scripture_ref_1").strip()
-    scripture_ref_2 = extract_block(master_md, "scripture_ref_2").strip()
-    scripture_ref_3 = extract_block(master_md, "scripture_ref_3").strip()
-    offertory_source_text = extract_block(master_md, "offertory_source_text").strip()
-    offertory_credit = extract_block(master_md, "offertory_credit").strip()
-    benediction_text = extract_block(master_md, "benediction_text").strip()
+    ctw_ref = master_value(master_md, "ctw_ref")
+    ctw_ref_church = master_value(master_md, f"ctw_ref_{church}")
+    aof_ref = master_value(master_md, "aof_ref")
+    scripture_ref_1 = master_value(master_md, "scripture_ref_1")
+    scripture_ref_2 = master_value(master_md, "scripture_ref_2")
+    scripture_ref_3 = master_value(master_md, "scripture_ref_3")
+    offertory_source_text = master_value(master_md, "offertory_source_text")
+    offertory_credit = master_value(master_md, "offertory_credit")
+    benediction_text = master_value(master_md, "benediction_text")
 
     # Songs (OpenLP markers live in the service templates)
-    song_opening_title = extract_block(master_md, f"song_opening_title_{church}").strip()
-    song_opening_id = extract_block(master_md, f"song_opening_id_{church}").strip()
-    song_middle_title = extract_block(master_md, f"song_middle_title_{church}").strip()
-    song_middle_id = extract_block(master_md, f"song_middle_id_{church}").strip()
-    song_closing_title = extract_block(master_md, f"song_closing_title_{church}").strip()
-    song_closing_id = extract_block(master_md, f"song_closing_id_{church}").strip()
+    song_opening_title = master_value(master_md, f"song_opening_title_{church}")
+    song_opening_id = master_value(master_md, f"song_opening_id_{church}")
+    song_middle_title = master_value(master_md, f"song_middle_title_{church}")
+    song_middle_id = master_value(master_md, f"song_middle_id_{church}")
+    song_closing_title = master_value(master_md, f"song_closing_title_{church}")
+    song_closing_id = master_value(master_md, f"song_closing_id_{church}")
 
     service_data = _load_service_data_from_osz(osz_path)
-    changed = False
+    report = report if report is not None else InjectionReport(church=church, communion=communion)
 
-    if ctw_ref_church:
+    if not ctw_ref_church:
+        report.skip("ctw", "no ctw_ref set in the master")
+    else:
         ctw = _get_slide_text_for_prefix(church, ctw_ref_church, exact=True)
-        if ctw:
-            ctw_title, ctw_text, ctw_credits = ctw
-            if _replace_custom_item_text(service_data, "ctw_holder", ctw_title, ctw_text, credits=ctw_credits):
-                changed = True
-            else:
-                logging.warning("CtW marker slide not found in %s service template", church)
+        if not ctw:
+            report.error("ctw", f"no library slide titled {ctw_ref_church!r}")
         else:
-            logging.warning("No CtW custom slide matched for %s: %s", church, ctw_ref_church)
+            ctw_title, ctw_pages, ctw_credits = ctw
+            if _replace_custom_item_text(service_data, "ctw_holder", ctw_title, ctw_pages, credits=ctw_credits):
+                report.ok("ctw", f"{ctw_title} ({len(ctw_pages)} slide(s))")
+            else:
+                report.error("ctw", "no 'ctw_holder' item in the service template")
 
-    if church == "elkton" and aof_ref:
+    if not aof_ref:
+        report.skip("aof", "no aof_ref set in the master")
+    elif not _has_service_item(service_data, "custom", "aof_holder"):
+        # aof_holder exists only in the non-communion Elkton template, so its
+        # absence on a communion Sunday is normal, not a failure.
+        report.skip("aof", f"no 'aof_holder' item in {template_name or 'this template'}")
+    else:
         aof = _get_slide_text_for_prefix(church, f"AoF p{aof_ref}")
-        if aof:
-            aof_title, aof_text, aof_credits = aof
-            if _replace_custom_item_text(service_data, "aof_holder", aof_title, aof_text, credits=aof_credits):
-                changed = True
-            else:
-                logging.warning("AoF marker slide not found in elkton service template")
+        if not aof:
+            report.error("aof", f"no library slide matching 'AoF p{aof_ref}'")
         else:
-            logging.warning("No AoF custom slide matched for elkton: p%s", aof_ref)
+            aof_title, aof_pages, aof_credits = aof
+            if _replace_custom_item_text(service_data, "aof_holder", aof_title, aof_pages, credits=aof_credits):
+                report.ok("aof", f"{aof_title} ({len(aof_pages)} slide(s))")
+            else:
+                report.error("aof", "no 'aof_holder' item in the service template")
 
     # Scripture updates:
     # 1) Prefer native OpenLP Bible plugin items by order (1, 2, 3)
     # 2) Fallback to custom holder slides if no bibles items are found
-    bible_item_count = 0
-    for item in service_data:
-        svc = item.get("serviceitem") if isinstance(item, dict) else None
-        if not isinstance(svc, dict):
-            continue
-        header = svc.get("header")
-        if isinstance(header, dict) and str(header.get("plugin", "")).lower() == "bibles":
-            bible_item_count += 1
+    bible_item_count = len(find_service_items(service_data, plugin="bibles"))
 
     refs = ((1, scripture_ref_1), (2, scripture_ref_2), (3, scripture_ref_3))
     if bible_item_count >= 3:
         for idx, ref in refs:
+            slot = f"bible_{idx}"
             if not ref:
+                report.skip(slot, f"no scripture_ref_{idx} set in the master")
                 continue
             try:
                 if _replace_bible_item_by_order(service_data, idx, ref, church):
-                    changed = True
+                    report.ok(slot, ref)
                 else:
-                    logging.warning("Bible service item #%s not found in %s service template", idx, church)
+                    report.error(slot, f"Bible service item #{idx} not found in the template")
             except Exception as e:
-                logging.warning("Could not update Bible item #%s (%s) for %s: %s", idx, ref, church, e)
+                report.error(slot, f"{ref}: {type(e).__name__}: {e}")
     else:
+        # No bibles items: every shipped template has three, so this only happens
+        # if a template is rebuilt without them.
         for idx, ref in refs:
-            if not ref:
-                continue
-
-            marker = f"scripture_ref_{idx}_holder"
-            try:
-                scripture_text = get_scripture_text(church, ref)
-            except Exception as e:
-                logging.warning("Could not load scripture %s for %s: %s", ref, church, e)
-                continue
-
-            if _replace_custom_item_reference(service_data, marker, ref, scripture_text):
-                changed = True
-            else:
-                logging.warning("Scripture marker slide %s not found in %s service template", marker, church)
+            report.error(
+                f"bible_{idx}",
+                f"template has {bible_item_count} Bible item(s); expected 3",
+            )
 
     # Song updates (marker-based)
     try:
-        if _inject_songs_into_openlp_service_data(
+        _inject_songs_into_openlp_service_data(
             service_data,
             church,
             opening_title=song_opening_title,
@@ -908,105 +654,95 @@ def _inject_custom_slides_into_openlp_service(osz_path: Path, church: str, maste
             middle_id=song_middle_id,
             closing_title=song_closing_title,
             closing_id=song_closing_id,
-        ):
-            changed = True
+            report=report,
+            verse_filters={
+                slot: read_verse_filter(master_md, slot, church)
+                for slot in ("opening", "middle", "closing")
+            },
+        )
     except Exception as e:
-        logging.warning("Could not inject songs into %s (%s): %s", osz_path, church, e)
+        report.error("songs", f"{type(e).__name__}: {e}")
 
     # Reading custom slides: keep first line, replace second line with scripture reference
     reading_map = (
-        ("Reading: 1", scripture_ref_1),
-        ("Reading: 2", scripture_ref_2),
-        ("Reading: Gospel", scripture_ref_3),
+        ("reading_1", "Reading: 1", scripture_ref_1),
+        ("reading_2", "Reading: 2", scripture_ref_2),
+        ("reading_gospel", "Reading: Gospel", scripture_ref_3),
     )
-    for reading_title, reading_ref in reading_map:
+    for slot, reading_title, reading_ref in reading_map:
         if not reading_ref:
+            report.skip(slot, "no scripture reference set in the master")
             continue
         if _replace_custom_item_second_line(service_data, reading_title, reading_ref.strip()):
-            changed = True
+            report.ok(slot, reading_ref)
+        else:
+            report.error(slot, f"no custom item titled {reading_title!r}")
 
-    if _replace_offertory_prayer_content_and_credits(
+    if not offertory_source_text:
+        report.skip("offertory_prayer", "no offertory_source_text set in the master")
+    elif _replace_offertory_prayer_content_and_credits(
         service_data,
+        church,
         offertory_source_text,
         offertory_credit,
     ):
-        changed = True
+        report.ok("offertory_prayer")
+    else:
+        report.error("offertory_prayer", "no custom item whose title starts with 'Offertory Prayer'")
 
-    if _replace_benediction_custom_slide(service_data, benediction_text):
-        changed = True
+    if not benediction_text:
+        report.skip("benediction", "no benediction_text set in the master")
+    elif _replace_benediction_custom_slide(service_data, church, benediction_text):
+        report.ok("benediction")
+    elif _format_benediction_slides_for_openlp(benediction_text) is None:
+        report.error("benediction", "benediction_text needs two blank-line separated paragraphs")
+    else:
+        report.error("benediction", "no custom item titled 'Benediction'")
 
-    if changed:
+    if report.changed:
         _write_service_data_to_osz(osz_path, service_data)
+    else:
+        report.stale = True
+
+    return report
 
 
 def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
                                           opening_title: str, opening_id: str,
                                           middle_title: str, middle_id: str,
-                                          closing_title: str, closing_id: str) -> bool:
+                                          closing_title: str, closing_id: str,
+                                          report: InjectionReport,
+                                          verse_filters: dict[str, tuple[int, ...] | None] | None = None) -> bool:
     """Return True if any song items were updated/removed using ID-driven slot rules."""
     from scripts.utils.text_clean import xml_to_text
     from scripts.utils.openlp import build_song_index, load_song
-    from scripts.music_gather import hymnal_from_prefix
 
     changed = False
     church_key = (church or "").strip().lower()
+    verse_filters = verse_filters or {}
 
     def warn_song_missing(slot_marker: str, message: str) -> None:
-        msg = f"[OpenLP song missing] {church_key}:{slot_marker} - {message}"
-        print(msg)
+        report.error(slot_marker, message)
 
-    def normalize_song_id(raw_id: str) -> str:
-        if raw_id is None:
-            return ""
-        base = str(raw_id).split("%%", 1)[0]
-        return base.strip()
-
-    def parse_hymnal_id(raw_id: str) -> tuple[str, str] | None:
-        """Valid hymnal IDs: b/r/k immediately followed by 1-4 numerals."""
-        m = re.match(r"^([brkBRK])(\d{1,4})$", raw_id)
-        if not m:
-            return None
-        return m.group(1).lower(), m.group(2)
-
-    def intro_prefix_for(title: str, prefix: str | None, entry: str | None) -> str | None:
-        """
-        Determine custom-slide prefix for intro holder replacement.
-        - video: P901 <title>
-        - k:     F####
-        - r:     U###
-        - b:     H### (lb) / S### (elkton)
-        """
-        if prefix is None or entry is None:
-            clean_title = (title or "").strip()
-            return f"P901 {clean_title}" if clean_title else None
-
-        if prefix == "k":
-            return f"F{entry.zfill(4)}"
-        if prefix == "r":
-            return f"U{entry.zfill(3)}"
-        if prefix == "b":
-            head = "H" if church_key == "lb" else "S"
-            return f"{head}{entry.zfill(3)}"
-        return None
-
-    def apply_intro_from_custom_slide(holder_marker: str, title: str, prefix: str | None, entry: str | None) -> bool:
-        intro_prefix = intro_prefix_for(title, prefix, entry)
+    def apply_intro_from_custom_slide(holder_marker: str, title: str, ref: SongRef | None) -> bool:
+        intro_prefix = intro_slide_prefix(church_key, ref, title)
         if not intro_prefix:
             return False
         slide = _get_slide_text_for_prefix(church_key, intro_prefix)
         if not slide:
-            logging.warning("No intro custom slide matched for %s using prefix %r", holder_marker, intro_prefix)
+            report.warn(holder_marker, f"no intro library slide matching {intro_prefix!r}")
             return False
-        slide_title, slide_text, slide_credits = slide
-        return _replace_custom_item_text(service_data, holder_marker, slide_title, slide_text, credits=slide_credits)
+        slide_title, slide_pages, slide_credits = slide
+        return _replace_custom_item_text(service_data, holder_marker, slide_title, slide_pages, credits=slide_credits)
 
     song_index = None
 
-    def try_replace_song(song_marker: str, title: str, prefix: str, entry: str) -> bool:
+    def try_replace_song(song_marker: str, title: str, ref: SongRef, verses: tuple[int, ...] | None) -> bool:
         nonlocal song_index
-        hymnal = hymnal_from_prefix(church_key, prefix)
+        prefix, entry = ref.prefix, ref.entry
+        hymnal = hymnal_name(church_key, prefix)
         if not hymnal:
-            warn_song_missing(song_marker, f"unknown hymnal prefix {prefix!r}")
+            warn_song_missing(song_marker, f"unknown hymnal prefix {prefix!r} for {church_key}")
             return False
 
         if song_index is None:
@@ -1029,7 +765,7 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
 
         from scripts.utils.openlp import parse_song_xml
         verse_order = str(song.get("verse_order") or "").strip()
-        pre_slides = parse_song_xml(lyrics_xml, verse_order)
+        pre_slides = parse_song_xml(lyrics_xml, verse_order, verses_filter=verses)
         lyrics_text = "" if pre_slides is not None else xml_to_text(lyrics_xml)
         new_title = str(song.get("raw_title") or song.get("title") or title or f"{hymnal} {entry}").strip()
         return _replace_song_item_by_marker(
@@ -1056,7 +792,11 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
     for slot_name, slot_title, slot_id_raw in slots:
         holder_marker = f"song_{slot_name}_holder"
         song_marker = f"song_{slot_name}"
-        slot_id = normalize_song_id(slot_id_raw)
+        slot_id = (str(slot_id_raw or "").split("%%", 1)[0]).strip()
+
+        if not slot_id:
+            report.skip(song_marker, "no song id set in the master")
+            continue
 
         # tbd means remove both intro + song placeholders for this slot
         if slot_id.lower() == "tbd":
@@ -1064,24 +804,36 @@ def _inject_songs_into_openlp_service_data(service_data: list, church: str, *,
             removed_song = _remove_service_items_by_marker(service_data, "songs", song_marker)
             if removed_custom or removed_song:
                 changed = True
+            report.skip(song_marker, "id is 'tbd' - intro and song items removed")
             continue
 
-        parsed = parse_hymnal_id(slot_id)
-        if parsed is None:
+        ref = parse_song_ref(slot_id, title_for_log=slot_title)
+        if ref is None:
             # Video/other non-hymnal ID: pick intro custom slide by P901 <title>, leave song placeholder unchanged.
-            if apply_intro_from_custom_slide(holder_marker, slot_title, None, None):
+            if apply_intro_from_custom_slide(holder_marker, slot_title, None):
                 changed = True
+            report.skip(song_marker, f"id {slot_id!r} is not a hymnal reference - media slot left for manual insert")
             continue
 
-        prefix, entry = parsed
+        verses = verse_filters.get(slot_name)
+        if ref.legacy_verses and verses is None:
+            report.warn(
+                song_marker,
+                f"verse list in the song id is ignored - put it in "
+                f"{{song_{slot_name}_vv_{church_key}}}",
+            )
 
         # For hymnal IDs, intro slide selection is based on prefix+number convention.
-        if apply_intro_from_custom_slide(holder_marker, slot_title, prefix, entry):
+        if apply_intro_from_custom_slide(holder_marker, slot_title, ref):
             changed = True
 
         # Replace actual song item when resolvable; if not found, leave placeholder item unchanged.
-        if try_replace_song(song_marker, slot_title, prefix, entry):
+        if try_replace_song(song_marker, slot_title, ref, verses):
             changed = True
+            detail = f"{slot_id} {slot_title}".strip()
+            if verses:
+                detail += f" (verses {', '.join(str(v) for v in verses)})"
+            report.ok(song_marker, detail)
 
     return changed
 
@@ -1128,26 +880,33 @@ def _copy_osz_to_tmp(src_path: Path) -> "Path | None":
 
 
 def _write_tmp_to_fuse(tmp_path: Path, dst_path: Path) -> None:
-    """Write a local /tmp file to a FUSE mount path using 1MB chunked writes."""
-    chunk_size = 1024 * 1024  # 1MB
-    with tmp_path.open("rb") as src, dst_path.open("wb") as dst:
-        shutil.copyfileobj(src, dst, chunk_size)
+    """
+    Write a local /tmp file to a FUSE mount path in 1MB chunks, via a temp file
+    next to the destination, so a failure part way through cannot destroy the
+    service file that is already there.
+    """
+    replace_file_atomic(tmp_path, dst_path)
 
 
 def copy_openlp_templates_for_each_church(
     *,
     master_path: Path | None = None,
-    strict: bool = False,
     verbose: bool = False,
+    dry_run: bool = False,
+    reports: Dict[str, InjectionReport] | None = None,
 ) -> Dict[str, Path]:
     """
     For each church, copy the OpenLP template file to a new file in the source directory
     with a date-based name, using config and file I/O utilities.
     Returns a dict mapping church name to the new file path.
+
+    Each church's findings are collected into `reports` (keyed by church) so the caller
+    can print one summary; with dry_run nothing is written to the OpenLP folders.
     """
     init_logging(verbose=verbose)
 
-    worship_dir = config.worship_dir
+    if reports is None:
+        reports = {}
 
     if master_path is None:
         raise ValueError("master_path must be provided")
@@ -1181,16 +940,19 @@ def copy_openlp_templates_for_each_church(
         template_key = info["template_key"]
         template_name = templates.get(template_key)
         if not openlp_root or not openlp_root.exists():
-            logging.warning(f"OpenLP root for {church} not found: {openlp_root}")
+            reports[church] = InjectionReport(church=church, communion=communion)
+            reports[church].error("template", f"OpenLP root not found: {openlp_root}")
             continue
         if not template_name:
-            logging.warning(f"No OpenLP template defined for {church} (communion {communion})")
+            reports[church] = InjectionReport(church=church, communion=communion)
+            reports[church].error("template", f"no OpenLP template for communion {communion}")
             continue
         # OpenLP .osz files are in 'OpenLP Services' subdir
         service_dir = openlp_root / "OpenLP Services"
         src_path = service_dir / template_name
         if not src_path.exists():
-            logging.warning(f"OpenLP template not found for {church}: {src_path}")
+            reports[church] = InjectionReport(church=church, template=template_name, communion=communion)
+            reports[church].error("template", f"template not found: {src_path}")
             continue
         # Output to the same subdirectory with 'Service--{date_slug}.osz' as the name
         out_name = f"Service--{date_slug}.osz"
@@ -1200,19 +962,34 @@ def copy_openlp_templates_for_each_church(
         # The file is only written to the FUSE mount once, at the very end, in chunks.
         tmp_copy = _copy_osz_to_tmp(src_path)
         if tmp_copy is None:
-            logging.warning(f"Could not get valid local copy of template for {church}; skipping.")
+            reports[church] = InjectionReport(church=church, template=template_name, communion=communion)
+            reports[church].error("template", f"could not read a valid local copy of {template_name}")
+            continue
+
+        report = InjectionReport(church=church, template=template_name, communion=communion)
+        reports[church] = report
+
+        try:
+            _inject_custom_slides_into_openlp_service(
+                tmp_copy, church, master_md,
+                communion=communion, template_name=template_name, report=report,
+            )
+        except Exception as e:
+            # The file is still written, but it now holds template content, and the
+            # summary has to say so rather than leaving a warning in the log.
+            report.error("injection", f"{type(e).__name__}: {e}")
+            report.stale = True
+
+        if dry_run:
+            logging.info("Dry run: not writing %s", out_path)
+            tmp_copy.unlink(missing_ok=True)
             continue
 
         try:
-            _inject_custom_slides_into_openlp_service(tmp_copy, church, master_md)
             _write_tmp_to_fuse(tmp_copy, out_path)
         except Exception as e:
-            logging.warning("Could not process OpenLP service for %s: %s", church, e)
-            try:
-                _write_tmp_to_fuse(tmp_copy, out_path)
-            except Exception as e2:
-                logging.warning("Could not write OpenLP service for %s to disk: %s", church, e2)
-                continue
+            report.error("write", f"could not write {out_path.name}: {type(e).__name__}: {e}")
+            continue
         finally:
             tmp_copy.unlink(missing_ok=True)
 
@@ -1266,8 +1043,7 @@ def build_markdown_and_writer_outputs(
 
     bulletin_dir = None
     if run_writer:
-        writer_info = build_librewriter_outputs(master_path=master_path, strict=strict, verbose=verbose)
-        bulletin_dir = writer_info["bulletin_dir"]
+        bulletin_dir = require_dir(config.bulletin_dir, "bulletin_dir")
 
     speaker_results = {}
     writer_results = {}
@@ -1288,7 +1064,7 @@ def build_markdown_and_writer_outputs(
                 omit_overrides=lb_omit_overrides,
             )
             md_out = worship_dir / f"{Path(md_template_name).stem}--{date_slug}.md"
-            write_text(md_out, md_rendered)
+            write_text_atomic(md_out, md_rendered)
             speaker_results[church] = RenderResult(md_out, md_warnings)
 
         if run_writer:
@@ -1300,8 +1076,9 @@ def build_markdown_and_writer_outputs(
                 writer_results[church] = None
             else:
                 writer_out = bulletin_dir / f"{date_slug}-{Path(writer_template_name).stem}.odt"
-                with zipfile.ZipFile(writer_template_path, 'r') as zin:
-                    with zipfile.ZipFile(writer_out, 'w') as zout:
+                with zipfile.ZipFile(writer_template_path, 'r') as zin, \
+                        atomic_write(writer_out, mode="wb") as odt_handle, \
+                        zipfile.ZipFile(odt_handle, 'w') as zout:
                         for item in zin.infolist():
                             data = zin.read(item.filename)
                             if item.filename == 'content.xml':
@@ -1315,7 +1092,7 @@ def build_markdown_and_writer_outputs(
                                     value = lookup[name]
                                     # In XML, "omit" and "delete" both collapse to empty string
                                     # (line-deletion would destroy ODT XML structure)
-                                    if value.strip().lower() in ("omit", "delete"):
+                                    if omitted_marker(value):
                                         value = ""
                                     if name in _PARA_SPLIT_PLACEHOLDERS:
                                         value = value.replace("&", "&amp;")
@@ -1339,7 +1116,7 @@ def build_markdown_and_writer_outputs(
             strict=strict,
         )
         liturgist_out = _liturgist_output_path(worship_dir, date_slug)
-        write_text(liturgist_out, liturgist_rendered)
+        write_text_atomic(liturgist_out, liturgist_rendered)
         liturgist_result = RenderResult(liturgist_out, liturgist_warnings)
         for w in liturgist_warnings:
             logging.warning("[Liturgist] %s", w)
@@ -1351,7 +1128,7 @@ def build_markdown_and_writer_outputs(
     return speaker_results, liturgist_result, writer_results
 
 
-def parse_args():
+def parse_args(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
         description="Publish weekly worship materials from a master markdown file"
     )
@@ -1369,6 +1146,11 @@ def parse_args():
         action="store_true",
         help="Enable verbose logging",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report what the OpenLP injection would do without writing any service file",
+    )
     segment = parser.add_mutually_exclusive_group()
     segment.add_argument(
         "-o", "--openlp",
@@ -1385,7 +1167,7 @@ def parse_args():
         action="store_true",
         help="Update markdown speaker/liturgist files only",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 
@@ -1505,15 +1287,56 @@ def _format_aof_ref_for_templates(placeholder_name: str, value: str) -> str:
     return f"{m.group(1)} {m.group(2).strip()}".strip()
 
 
+# Liturgical cue labels that each begin a new Call to Worship paragraph.
+_CTW_CUE_RE = re.compile(r"^(?:Leader|People|All|L|P)\s*:", re.IGNORECASE)
+
+
+def _collapse_ctw_to_cue_lines(value: str) -> str:
+    """
+    One line per liturgical cue: a line starting with Leader:/L:/People:/P:/All:
+    begins a new paragraph, and any hard-wrapped continuation lines are folded
+    into it.
+
+    Collapsing on the master's blank lines instead (the old behaviour) made
+    paragraph breaks depend on how the source happened to be wrapped, so two
+    cues sharing a block ran together in the bulletin.
+    """
+    paragraphs: list[str] = []
+    for raw_line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = re.sub(r"\s+", " ", raw_line.strip())
+        if not line:
+            continue
+        if _CTW_CUE_RE.match(line) or not paragraphs:
+            paragraphs.append(line)
+        else:
+            paragraphs[-1] = f"{paragraphs[-1]} {line}"
+    return "\n".join(paragraphs)
+
+
+def _preserve_line_structure(value: str) -> str:
+    """Keep the author's own line breaks, trimming trailing space and blank runs."""
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in normalized.split("\n")]
+    return "\n".join(line for line in lines if line.strip())
+
+
 def _format_multiline_fields_for_templates(placeholder_name: str, value: str) -> str:
     """
     For selected placeholders, keep one newline between paragraphs while
     collapsing wrapped lines inside each paragraph to spaces.
 
-    This preserves markdown paragraph intent for publishing outputs.
+    Two exceptions:
+      - announce_event(s)_*: each event stays on its own line, as written in the master.
+      - ctw_xml_*: one line per liturgical cue (see _collapse_ctw_to_cue_lines).
     """
     if not _requires_single_newline_paragraphs(placeholder_name):
         return value
+
+    if placeholder_name.startswith(("announce_event_", "announce_events_")):
+        return _preserve_line_structure(value)
+
+    if placeholder_name.startswith("ctw_xml_"):
+        return _collapse_ctw_to_cue_lines(value)
 
     normalized = value.replace("\r\n", "\n").replace("\r", "\n")
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", normalized) if p.strip()]
@@ -1618,19 +1441,38 @@ _PARA_SPLIT_PLACEHOLDERS = frozenset({
 })
 
 
+# Markdown emphasis per Call to Worship speaker, keyed by the cue's first letter.
+_CTW_MARKDOWN_STYLE = {"l": "**", "a": "**", "p": "*"}
+
+
 def _format_ctw_markdown_lines(name: str, value: str) -> str:
-    """For ctw_xml_* placeholders, italicise lines starting with P and bold lines starting with L."""
+    """
+    For ctw_xml_* placeholders, style each speaker's part: Leader:/L:/All: in
+    bold, People:/P: in italics. A cue (the same set the bulletin recognises,
+    _CTW_CUE_RE) sets the style for its own line and the continuation lines under
+    it, up to the next cue; lines before the first cue stay plain.
+
+    Each line is wrapped on its own because Markdown emphasis cannot span a blank
+    line. Matching any line that merely started with L or P instead styled
+    ordinary text such as "Let them praise…" and left the markers unclosed.
+    """
     if not name.startswith("ctw_xml_"):
         return value
     result = []
+    style = ""
     for line in value.split("\n"):
         stripped = line.strip()
-        if stripped.startswith("P"):
-            line = f"*{line}"
-        elif stripped.startswith("L"):
-            line = f"**{line}"
+        if _CTW_CUE_RE.match(stripped):
+            style = _CTW_MARKDOWN_STYLE[stripped[0].lower()]
+        if stripped and style:
+            indent = line[: len(line) - len(line.lstrip())]
+            line = f"{indent}{style}{stripped}{style}"
         result.append(line)
     return "\n".join(result)
+
+
+# Bulletin Call to Worship lines set in Strong Emphasis: the congregation's parts.
+_CTW_BULLETIN_EMPHASIS_RE = re.compile(r"^(?:People|All|P)\s*:", re.IGNORECASE)
 
 
 def _expand_writer_paragraph(text: str, name: str, value: str) -> str:
@@ -1654,7 +1496,7 @@ def _expand_writer_paragraph(text: str, name: str, value: str) -> str:
     else:
         parts = []
         for ln in lines:
-            if is_ctw and ln.strip().startswith("P"):
+            if is_ctw and _CTW_BULLETIN_EMPHASIS_RE.match(ln.strip()):
                 content = '<text:span text:style-name="Strong Emphasis">' + ln + "</text:span>"
             else:
                 content = ln
@@ -1686,6 +1528,32 @@ def _apply_delete_rule(value: str) -> str:
     This mirrors your Master.md conventions.
     """
     return "" if value.strip().lower() == "delete" else value
+
+
+def _omit_discard_warning(name: str, value: str, marker: str) -> str | None:
+    """Warn when text under an omit marker is being dropped, so it is never silent."""
+    remainder = "\n".join(
+        line for line in value.split("\n")[1:] if line.strip()
+    ).strip()
+    if not remainder:
+        return None
+    preview = re.sub(r"\s+", " ", remainder)[:60]
+    return f"Placeholder {{{name}}} is '{marker}'; discarded the text under it: {preview!r}"
+
+
+def _drop_lines_for_omitted_placeholder(template_text: str, name: str) -> str:
+    """
+    Remove template lines whose only content is this placeholder, so an omitted
+    value takes its label line with it instead of leaving a blank or a dangling
+    label. Lines holding other text keep their position and lose only the token.
+    """
+    token = f"{{{name}}}"
+    kept = []
+    for line in template_text.split("\n"):
+        if token in line and not line.replace(token, "").strip():
+            continue
+        kept.append(line)
+    return "\n".join(kept)
 
 
 def _resolve_aliases(name: str) -> Tuple[str, ...]:
@@ -1721,8 +1589,10 @@ def render_markdown_template(
       - unknown placeholders raise ValueError.
 
     Also applies:
-      - omit rule: if replacement == 'omit', delete entire line containing placeholder
-      - delete rule: if replacement == 'delete', replace with empty string
+      - omit/delete rule: a block whose first non-empty line is 'omit' or 'delete'
+        renders as nothing, and takes its template line with it when the placeholder
+        stands alone on that line. Text found under the marker is discarded, with a
+        warning naming what was dropped.
 
     omit_overrides: dict of {placeholder_name: fallback_value}.  When a placeholder's
       value would trigger the omit rule, use the fallback value instead of deleting
@@ -1758,9 +1628,15 @@ def render_markdown_template(
             rendered = rendered.replace(f"{{{name}}}", "")
             continue
 
-        if name in omit_overrides and value.strip().lower() == "omit":
+        marker = omitted_marker(value)
+        if marker and name in omit_overrides:
             value = omit_overrides[name]
-        elif value.strip().lower() in ("omit", "delete"):
+        elif marker:
+            discard = _omit_discard_warning(name, value, marker)
+            if discard:
+                warnings.append(discard)
+            # Take the whole line with it where the placeholder stands alone.
+            rendered = _drop_lines_for_omitted_placeholder(rendered, name)
             value = ""
         else:
             value = _apply_delete_rule(value)
@@ -1807,42 +1683,11 @@ def _liturgist_output_path(worship_dir: Path, date_slug: str) -> Path:
 # LibreOffice Writer output builder (stub)
 # -----------------------------------------------------------------------------
 
-def build_librewriter_outputs(*, master_path: Path | None = None, strict: bool = False, verbose: bool = False):
-    """
-    Access bulletin_dir and list Writer templates/documents from that directory.
-    This will be expanded to generate Writer files from templates in this directory.
-    """
-    if master_path is None:
-        raise ValueError("master_path must be provided")
-    if not master_path.exists():
-        raise FileNotFoundError(f"Master.md not found at: {master_path}")
+def main(argv: list[str] | None = None) -> int:
+    """Run the publish steps and return a process exit code."""
+    args = parse_args(argv)
 
-    master_md = read_text(master_path)
-    bulletin_dir = getattr(config, "bulletin_dir", None)
-    if bulletin_dir is None or not bulletin_dir:
-        raise ValueError("bulletin_dir is not configured in weekly_config.ini")
-
-    bulletin_path = Path(bulletin_dir)
-    if not bulletin_path.exists():
-        raise FileNotFoundError(f"Bulletin directory does not exist: {bulletin_path}")
-
-    # List all files in bulletin_dir (LibreOffice templates and Writer docs)
-    files = list(bulletin_path.glob("*.ott")) + list(bulletin_path.glob("*.odt"))
-
-    # For now, just return the directory and file list (stub for future expansion)
-    return {"bulletin_dir": bulletin_path, "files": files}
-
-
-# -----------------------------------------------------------------------------
-# CLI entry point
-# -----------------------------------------------------------------------------
-
-
-if __name__ == "__main__":
-    args = parse_args()
-
-    worship_dir = config.worship_dir
-    master_path = worship_dir / args.master
+    master_path = resolve_master_path(args.master)
 
     # Determine which segments to run (default: all)
     run_md = not (args.openlp or args.writer)
@@ -1877,11 +1722,24 @@ if __name__ == "__main__":
         else:
             print(f"Writer template for {church} not found.")
 
+    reports: Dict[str, InjectionReport] = {}
     if run_ol:
         openlp_results = copy_openlp_templates_for_each_church(
             master_path=master_path,
-            strict=args.strict,
             verbose=args.verbose,
+            dry_run=args.dry_run,
+            reports=reports,
         )
-        for church, out_path in openlp_results.items():
-            print(f"OpenLP file for {church}: {out_path.name}")
+        destinations = {church: path.name for church, path in openlp_results.items()}
+        if args.dry_run:
+            destinations = {church: "(dry run, not written)" for church in reports}
+        print(render_summary(reports, destinations))
+
+    # Files are always written; --strict turns an incomplete run into a failing
+    # exit code so a wrapper can notice.
+    failed = any(r.errors or not r.changed for r in reports.values())
+    return 1 if (failed and args.strict) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,17 +1,8 @@
-from .text_clean import clean_text
-from .file_io import read_text, write_text, safe_mkdir, list_files
-from .placeholder import (
-    extract_block, append_below_placeholder, replace_placeholder, has_placeholder,
-    extract_serviceinfo_block, update_serviceinfo_block,
-)
+"""
+Shared helpers for the weekly automation scripts.
 
-# NEW — merged OpenLP module
-from .openlp import (
-    load_song,
-    load_custom_slide,
-    get_scripture_text,
-    build_song_index,
-)
-
-# from .ccli_helpers import get_ccli_lyrics  # deprecated and archived
-from .logging_utils import init_logging
+Submodules are imported directly (`from scripts.utils.openlp import ...`) rather
+than re-exported here: a package-level import of .openlp pulls in sqlite3 and the
+config singleton, which is why welcome.py needs a second import shim to run inside
+GIMP's interpreter.
+"""

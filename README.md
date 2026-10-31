@@ -33,14 +33,27 @@ The project is designed to run on Windows, Linux, and mixed-device environments 
 - Populates LibreOffice `.odt` bulletin templates  
 - Prepares OpenLP elements (planned future integration)
 
-## Folder Structure (Full details in `STRUCTURE.md`)
+## Folder Structure
 ```
-docs/           → Master files, planning notes, documentation  
-scripts/        → Python scripts for gathering, cleaning, and dissemination  
-scripts/utils/  → Shared utility modules (I/O, XML, OpenLP helpers, text cleaning)  
-templates/      → Bulletin templates, markdown skeletons, service structures  
-data/           → Paths, logs, local OpenLP databases, temporary artifacts
+docs/           → Planning notes and path documentation
+scripts/        → The scripts themselves
+scripts/utils/  → Shared modules: config, file I/O, placeholders, text cleaning,
+                  OpenLP databases (openlp.py), service files (osz.py),
+                  hymnal references (hymnal.py), run reports (report.py)
+tests/          → pytest suite; tests/data holds trimmed service files
 ```
+Templates, master files and the OpenLP databases live outside the repo, under the
+paths set in `scripts/weekly_config.ini`.
+
+## Tests
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+The suite never touches the live OneDrive tree: service files are rebuilt from the
+trimmed fixtures in `tests/data`, and the databases are created in a temp folder.
+Regenerate the fixtures after a template change with
+`python3 tests/tools/make_osz_fixture.py`.
 
 ## Setup
 
@@ -193,6 +206,19 @@ By default `publish.py` generates all three output types. Use one of the followi
 
 These flags are mutually exclusive. Omitting all three runs everything.
 
+`--dry-run` reports what the OpenLP injection would do without writing any service
+file, and `--strict` makes the run exit non-zero when anything was missed. Every run
+ends with a summary naming what matched, what was deliberately skipped and what
+failed; output files are still written when something fails, so they can be fixed by
+hand in OpenLP, and the summary marks them as containing template content.
+
+```
+=== OpenLP summary ===
+elkton   OK              11 ok / 2 skip / 0 warn / 0 error   -> Service--2026-10-04.osz
+   SKIP   aof                  no aof_ref set in the master
+   SKIP   song_opening         id 'MercyMe' is not a hymnal reference
+```
+
 ```bash
 # Markdown only
 python3 -m scripts.publish "Master 2025-11-23.md" -m
@@ -203,6 +229,22 @@ python3 -m scripts.publish "Master 2025-11-23.md" -w
 # OpenLP only
 python3 -m scripts.publish "Master 2025-11-23.md" -o
 ```
+
+### Occasional scripts
+
+| Script | Purpose |
+|--------|---------|
+| `rebuild_indexes.py` | Rewrite `openlp_custom_index_<church>.md` from the custom slide libraries. `--slides` / `--elkton` / `--lb` narrow it. Song index generation is not implemented and writes nothing. |
+| `dedupe_custom_slides.py` | Remove duplicate custom slides (same title and credits) that older runs made OpenLP clone. Dry run by default; `--apply` deletes, after a timestamped backup. |
+
+## Backups
+
+`text_gather.py` and `music_gather.py` rewrite the master in place, so each run first
+copies it to `.backups/` beside the master, keeping the five most recent. `publish.py`
+backs up a church's `custom.sqlite` once per run before it writes this week's offertory
+prayer and benediction into the library. All output files are written through a temp
+file and renamed into place, so an interrupted run cannot leave a half-written
+bulletin or service file.
 
 ## Rollback Point
 

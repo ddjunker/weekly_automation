@@ -21,19 +21,12 @@ from typing import Any, cast
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-try:
-    from scripts.utils.config import config
-    from scripts.utils.file_io import read_text
-    from scripts.utils.logging_utils import init_logging
-except (ImportError, ModuleNotFoundError):
-    # Fallback for embedded runtimes (e.g., GIMP Python) where importing
-    # scripts.utils package-level __init__ may fail due to optional deps
-    # (e.g., sqlite3 DLL unavailable, yaml/regex not installed).
-    utils_dir = Path(__file__).resolve().parent / "utils"
-    sys.path.insert(0, str(utils_dir))
-    from config import config  # type: ignore[import-not-found]
-    from file_io import read_text  # type: ignore[import-not-found]
-    from logging_utils import init_logging  # type: ignore[import-not-found]
+# scripts.utils.__init__ no longer imports the database layer, so these are safe
+# to import from GIMP's interpreter too — verified against gimp-console.
+from scripts.utils.cli import resolve_master_or_exit, start_logging
+from scripts.utils.config import config, require_dir
+from scripts.utils.file_io import read_text
+from scripts.utils.placeholder import extract_block
 
 
 def _iter_layers_recursive(layer):
@@ -192,40 +185,12 @@ def _resolve_template_paths(template_arg: str, projection_dir: Path) -> list[Pat
     return [_resolve_template_path("", projection_dir)]
 
 
-def _resolve_master_path(master_arg: str) -> Path:
-    """
-    Resolve master path similarly to text_gather.py:
-      - absolute path as-is
-      - otherwise resolve relative to config.worship_dir
-    """
-    candidate = Path(master_arg).expanduser()
-    if candidate.is_absolute():
-        return candidate
-
-    worship = config.worship_dir.expanduser().resolve()
-    if not worship.exists():
-        raise FileNotFoundError(f"Worship directory not found: {worship}")
-
-    return (worship / candidate).resolve()
-
-
-
-def _extract_block(md: str, key: str) -> str:
-    """Extract value after =={key}== (or bare {key}). Uses only stdlib re."""
-    pattern = rf"\{{{re.escape(key)}\}}=*\s*(.*?)(?=\n\s*=*\{{|\Z)"
-    m = re.search(pattern, md, flags=re.S)
-    if not m:
-        return ""
-    text = re.sub(r"%%[\s\S]*?%%", "", m.group(1))  # strip Obsidian comments
-    return text.strip()
-
-
 def _load_welcome_fields(master_path: Path) -> tuple[str, str]:
     if not master_path.exists():
         raise FileNotFoundError(f"Master markdown not found: {master_path}")
     md = read_text(master_path)
-    cal_date = _extract_block(md, "cal_date").strip()
-    cal_church = _extract_block(md, "cal_church").strip()
+    cal_date = extract_block(md, "cal_date").strip()
+    cal_church = extract_block(md, "cal_church").strip()
     if not cal_date:
         raise ValueError("{cal_date} is missing in Master markdown")
     if not cal_church:
@@ -393,12 +358,6 @@ def main(argv=None):
         help="Master markdown path (absolute, repo-relative, or worship_dir-relative)",
     )
     parser.add_argument(
-        "--master",
-        dest="master_flag",
-        default="",
-        help="Master markdown path (same as positional master)",
-    )
-    parser.add_argument(
         "--template",
         default="",
         help="Template .xcf filename or absolute path (optional; auto-detects common names if omitted)",
@@ -413,19 +372,10 @@ def main(argv=None):
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
     args = parser.parse_args(argv_list)
-    init_logging(verbose=args.verbose)
+    start_logging(args)
 
-    master_arg = (args.master_flag or args.master).strip()
-    if not master_arg:
-        raise SystemExit("Master markdown path is required (e.g. welcome.py \"Master 2025-11-23.md\")")
-
-    projection_dir = getattr(config, "projection_pics_dir", Path(""))
-    if not projection_dir:
-        raise ValueError("projection_pics_dir is not configured in weekly_config.ini")
-    if not projection_dir.exists():
-        raise FileNotFoundError(f"projection_pics_dir does not exist: {projection_dir}")
-
-    master_path = _resolve_master_path(master_arg)
+    master_path = resolve_master_or_exit(args, script="welcome.py")
+    projection_dir = require_dir(config.projection_pics_dir, "projection_pics_dir")
     cal_date_text, cal_church_text = _load_welcome_fields(master_path)
     logging.debug("Loaded cal_date=%r", cal_date_text)
     logging.debug("Loaded cal_church=%r", cal_church_text)

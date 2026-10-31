@@ -34,7 +34,29 @@
       "Bash(grep -n \"PATH\" /home/daren/.bashrc /home/daren/.profile)",
       "Bash(crontab -l)",
       "Bash(echo \"exit:$?\")",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(python3 -)",
+      "Bash(python3 -m py_compile scripts/text_gather.py scripts/music_gather.py scripts/rebuild_indexes.py scripts/utils/file_io.py scripts/utils/placeholder.py)",
+      "Bash(SNAP=/tmp/claude-1000/-home-daren-weekly-automation/6da07566-187a-4490-ae67-6e0e103d87f7/scratchpad/before && mkdir -p $SNAP && cp /home/daren/obsidian/Pastor/Worship/Pastor*--2026-10-04.md /home/daren/obsidian/Pastor/Worship/Liturgist--2026-10-04.md $SNAP/ && ls $SNAP && md5sum /home/daren/obsidian/Pastor/Worship/M10-04.md)",
+      "Bash(python3 scripts/publish.py M10-04.md -m)",
+      "Bash(awk '{print $6, $7, $9}')",
+      "Bash(python3 /tmp/claude-1000/-home-daren-weekly-automation/6da07566-187a-4490-ae67-6e0e103d87f7/scratchpad/isolate.py)",
+      "Bash(python3 scripts/prepub.py M10-04.md)",
+      "Bash(unzip -p \"/home/daren/OneDrive-worship/Documents/Bulletins/2026-10-04-elkc3.odt\" content.xml)",
+      "Bash(unzip -p \"/home/daren/OneDrive-worship/Documents/Bulletins/elkc3.ott\" content.xml)",
+      "Bash(python3 -m py_compile scripts/publish.py)",
+      "Bash(python3 -c \"import pytest; print\\('pytest', pytest.__version__\\)\")",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/python tests/tools/make_osz_fixture.py)",
+      "Bash(awk '{print $5, $9}')",
+      "Bash(.venv/bin/python -m pytest tests/test_placeholder.py)",
+      "Bash(.venv/bin/python -m pytest tests/test_service_items.py)",
+      "Bash(.venv/bin/python -m pytest tests/test_openlp_library.py)",
+      "Bash(cd /usr/lib/python3/dist-packages/openlp && grep -rn '\\\\[===\\\\]\\\\|\\\\[---\\\\]' --include=*.py . | head -10)",
+      "Read(//usr/lib/python3/dist-packages/openlp/**)"
+    ],
+    "additionalDirectories": [
+      "/home/daren/obsidian/Pastor/Worship"
     ]
   }
 }
