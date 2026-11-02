@@ -1,0 +1,7 @@
+# Test configuration lives here rather than in pytest.ini because .gitignore
+# excludes *.ini (apart from scripts/weekly_config.ini), so a pytest.ini would
+# never be committed.
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

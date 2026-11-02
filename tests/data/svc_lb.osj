@@ -1,0 +1,1664 @@
+[
+ {
+  "openlp_core": {
+   "lite-service": false,
+   "service-theme": "Autumn",
+   "openlp-servicefile-version": 3
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Announcements",
+    "footer": [
+     "Announcements "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "If you need any pastoral servi",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Greeting time",
+    "footer": [
+     "Greeting time "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "Greeting one another in Christ",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Gathering song",
+    "footer": [
+     "Gathering song "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "I’m so glad I’m a part of the ",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "CtW",
+    "footer": [
+     "CtW "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "Call to Worship",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "ctw_holder",
+    "footer": [
+     "ctw_holder "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "script use only",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "songs",
+    "plugin": "songs",
+    "theme": null,
+    "title": "Gloria Patri",
+    "footer": [
+     "Gloria Patri",
+     "Written by: Charles Meineke",
+     "© public domain",
+     "United Methodist Hymnal #70"
+    ],
+    "type": 1,
+    "audit": [
+     "Gloria Patri",
+     [
+      "Charles Meineke"
+     ],
+     "public domain",
+     ""
+    ],
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     8,
+     9,
+     13,
+     22
+    ],
+    "search": "",
+    "data": {
+     "title": "gloria patri@",
+     "alternate_title": "",
+     "authors": "Charles Meineke",
+     "ccli_number": "",
+     "copyright": "public domain"
+    },
+    "xml_version": "<?xml version='1.0' encoding='UTF-8'?>\n<song xmlns=\"http://openlyrics.info/namespace/2009/song\" version=\"0.8\" createdIn=\"OpenLP 3.1.1\" modifiedIn=\"OpenLP 3.1.1\" modifiedDate=\"2016-07-29T18:48:19\"><properties><titles><title>Gloria Patri</title></titles><copyright>public domain</copyright><verseOrder>v1</verseOrder><authors><author>Charles Meineke</author></authors><songbooks><songbook name=\"United Methodist Hymnal\" entry=\"70\"/></songbooks></properties><lyrics><verse name=\"v1\"><lines>Glory be to the Father<br/>and to the Son<br/>and to the Holy Ghost;<br/><br/>As it was in the beginning,<br/>Is now, And ever shall be,<br/>World without end.<br/>Amen. Amen.</lines></verse></lyrics></song>",
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "Glory be to the Father",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "V1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "song_opening_holder",
+    "footer": [
+     "song_opening_holder "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "script use only",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "songs",
+    "plugin": "songs",
+    "theme": null,
+    "title": "song_opening",
+    "footer": [
+     "song_opening",
+     "Written by: Daren Junker",
+     "© na",
+     "Other #1"
+    ],
+    "type": 1,
+    "audit": [
+     "song_opening",
+     [
+      "Daren Junker"
+     ],
+     "na",
+     ""
+    ],
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     8,
+     9,
+     13,
+     22
+    ],
+    "search": "",
+    "data": {
+     "title": "song opening@",
+     "alternate_title": "",
+     "authors": "Daren Junker",
+     "ccli_number": "",
+     "copyright": "na"
+    },
+    "xml_version": "<?xml version='1.0' encoding='UTF-8'?>\n<song xmlns=\"http://openlyrics.info/namespace/2009/song\" version=\"0.8\" createdIn=\"OpenLP 3.1.7\" modifiedIn=\"OpenLP 3.1.7\" modifiedDate=\"2026-03-01T21:38:34\"><properties><titles><title>song_opening</title></titles><copyright>na</copyright><authors><author>Daren Junker</author></authors><songbooks><songbook name=\"Other\" entry=\"1\"/></songbooks></properties><lyrics><verse name=\"v1\"><lines>to replaced by script</lines></verse></lyrics></song>",
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "to replaced by script",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "V1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Reading: 1",
+    "footer": [
+     "Reading: 1 "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "Today our first reading is fro",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "bibles",
+    "plugin": "bibles",
+    "theme": null,
+    "title": "Genesis 1:1 Revised Standard Version, from the Revised Standard Version of the Bible, copyright © 1946, 1952, and 1971 the Division of Christian Education of the National Council of the Churches of Christ in the United States of America., Used by permission. All rights reserved.",
+    "footer": [
+     "Genesis 1:1",
+     "Revised Standard Version, from the Revised Standard Version of the Bible, copyright © 1946, 1952, and 1971 the Division of Christian Education of the National Council of the Churches of Christ in the United States of America., Used by permission. All rights reserved."
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     14,
+     1,
+     5,
+     17
+    ],
+    "search": "",
+    "data": {
+     "bibles": [
+      {
+       "version": "Revised Standard Version",
+       "copyright": "from the Revised Standard Version of the Bible, copyright © 1946, 1952, and 1971 the Division of Christian Education of the National Council of the Churches of Christ in the United States of America.",
+       "permissions": "Used by permission. All rights reserved."
+      }
+     ]
+    },
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "{su}1:1&nbsp;{/su}In the begin",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Reading: 2",
+    "footer": [
+     "Reading: 2 "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "Our second reading is from",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "bibles",
+    "plugin": "bibles",
+    "theme": null,
+    "title": "Acts 1:1 Revised Standard Version, from the Revised Standard Version of the Bible, copyright © 1946, 1952, and 1971 the Division of Christian Education of the National Council of the Churches of Christ in the United States of America., Used by permission. All rights reserved.",
+    "footer": [
+     "Acts 1:1",
+     "Revised Standard Version, from the Revised Standard Version of the Bible, copyright © 1946, 1952, and 1971 the Division of Christian Education of the National Council of the Churches of Christ in the United States of America., Used by permission. All rights reserved."
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     14,
+     1,
+     5,
+     17
+    ],
+    "search": "",
+    "data": {
+     "bibles": [
+      {
+       "version": "Revised Standard Version",
+       "copyright": "from the Revised Standard Version of the Bible, copyright © 1946, 1952, and 1971 the Division of Christian Education of the National Council of the Churches of Christ in the United States of America.",
+       "permissions": "Used by permission. All rights reserved."
+      }
+     ]
+    },
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "{su}1:1&nbsp;{/su}In the first",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "song_middle_holder",
+    "footer": [
+     "song_middle_holder "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "script use only",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "songs",
+    "plugin": "songs",
+    "theme": null,
+    "title": "song_middle",
+    "footer": [
+     "song_middle",
+     "Written by: Daren Junker",
+     "© na",
+     "Other #2"
+    ],
+    "type": 1,
+    "audit": [
+     "song_middle",
+     [
+      "Daren Junker"
+     ],
+     "na",
+     ""
+    ],
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     8,
+     9,
+     13,
+     22
+    ],
+    "search": "",
+    "data": {
+     "title": "song middle@",
+     "alternate_title": "",
+     "authors": "Daren Junker",
+     "ccli_number": "",
+     "copyright": "na"
+    },
+    "xml_version": "<?xml version='1.0' encoding='UTF-8'?>\n<song xmlns=\"http://openlyrics.info/namespace/2009/song\" version=\"0.8\" createdIn=\"OpenLP 3.1.7\" modifiedIn=\"OpenLP 3.1.7\" modifiedDate=\"2026-03-01T21:38:27\"><properties><titles><title>song_middle</title></titles><copyright>na</copyright><authors><author>Daren Junker</author></authors><songbooks><songbook name=\"Other\" entry=\"2\"/></songbooks></properties><lyrics><verse name=\"v1\"><lines>to replaced by script</lines></verse></lyrics></song>",
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "to replaced by script",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "V1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Reading: Gospel",
+    "footer": [
+     "Reading: Gospel "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "The Gospel reading for today i",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "bibles",
+    "plugin": "bibles",
+    "theme": null,
+    "title": "Matthew 1:1 Revised Standard Version, from the Revised Standard Version of the Bible, copyright © 1946, 1952, and 1971 the Division of Christian Education of the National Council of the Churches of Christ in the United States of America., Used by permission. All rights reserved.",
+    "footer": [
+     "Matthew 1:1",
+     "Revised Standard Version, from the Revised Standard Version of the Bible, copyright © 1946, 1952, and 1971 the Division of Christian Education of the National Council of the Churches of Christ in the United States of America., Used by permission. All rights reserved."
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     14,
+     1,
+     5,
+     17
+    ],
+    "search": "",
+    "data": {
+     "bibles": [
+      {
+       "version": "Revised Standard Version",
+       "copyright": "from the Revised Standard Version of the Bible, copyright © 1946, 1952, and 1971 the Division of Christian Education of the National Council of the Churches of Christ in the United States of America.",
+       "permissions": "Used by permission. All rights reserved."
+      }
+     ]
+    },
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "{su}1:1&nbsp;{/su}The book of ",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Gospel Response",
+    "footer": [
+     "Gospel Response "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "{y}The Word of God",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Sermon",
+    "footer": [
+     "Sermon "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "From God's eternal Word...",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "AoF: Apostles' Creed",
+    "footer": [
+     "AoF: Apostles' Creed "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "Affirmation of Faith: The Apos",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    },
+    {
+     "title": "I believe in God the Father Al",
+     "raw_slide": "[fixture slide 2]",
+     "verseTag": "2"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "media",
+    "plugin": "media",
+    "theme": -1,
+    "title": "GirlPraying4m.avi",
+    "footer": [],
+    "type": 3,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     12,
+     16,
+     17,
+     4
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 247,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": true,
+    "processor": "Automatic",
+    "metadata": [],
+    "sha256_file_hash": "2ef27ccb79ca30d578d4c9c460eab15d3a58b8ba7a921c8a9b95681f007e7780",
+    "stored_filename": "2ef27ccb79ca30d578d4c9c460eab15d3a58b8ba7a921c8a9b95681f007e7780.avi"
+   },
+   "data": [
+    {
+     "title": "GirlPraying4m.avi",
+     "image": "clapperboard",
+     "path": {
+      "parts": [
+       "/",
+       "home",
+       "daren",
+       "openlp-data",
+       "servicemanager"
+      ],
+      "json_meta": {
+       "class": "Path",
+       "version": 1
+      }
+     },
+     "display_title": null,
+     "notes": null
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "The Lord's Prayer",
+    "footer": [
+     "The Lord's Prayer "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "Our Father who art in heaven, ",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Confession & Pardon (shorter)",
+    "footer": [
+     "Confession & Pardon (shorter) "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "{y}Minister: If we confess our",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    },
+    {
+     "title": "{y}M: Let us pray.{/y}",
+     "raw_slide": "[fixture slide 2]",
+     "verseTag": "2"
+    },
+    {
+     "title": "{y}M: So let us come near to G",
+     "raw_slide": "[fixture slide 3]",
+     "verseTag": "3"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "media",
+    "plugin": "media",
+    "theme": -1,
+    "title": "waterfountain3m.avi",
+    "footer": [],
+    "type": 3,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     12,
+     16,
+     17,
+     4
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 184,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": true,
+    "processor": "Automatic",
+    "metadata": [],
+    "sha256_file_hash": "507b998cc8611d5a40c193a1e3ce0bda12de415d103c0cbe26aa5d368ffab3a3",
+    "stored_filename": "507b998cc8611d5a40c193a1e3ce0bda12de415d103c0cbe26aa5d368ffab3a3.avi"
+   },
+   "data": [
+    {
+     "title": "waterfountain3m.avi",
+     "image": "clapperboard",
+     "path": {
+      "parts": [
+       "/",
+       "home",
+       "daren",
+       "openlp-data",
+       "servicemanager"
+      ],
+      "json_meta": {
+       "class": "Path",
+       "version": 1
+      }
+     },
+     "display_title": null,
+     "notes": null
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Offering Doxology",
+    "footer": [
+     "Offering Doxology "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "{h}Doxology{/h}",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "songs",
+    "plugin": "songs",
+    "theme": null,
+    "title": "Praise God, from Whom All Blessings Flow",
+    "footer": [
+     "Praise God, from Whom All Blessings Flow",
+     "Written by: Thomas Ken",
+     "© public domain",
+     "United Methodist Hymnal #95"
+    ],
+    "type": 1,
+    "audit": [
+     "Praise God, from Whom All Blessings Flow",
+     [
+      "Thomas Ken"
+     ],
+     "public domain",
+     ""
+    ],
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     8,
+     9,
+     13,
+     22
+    ],
+    "search": "",
+    "data": {
+     "title": "praise god from whom all blessings flow@doxology",
+     "alternate_title": "Doxology",
+     "authors": "Thomas Ken",
+     "ccli_number": "",
+     "copyright": "public domain"
+    },
+    "xml_version": "<?xml version='1.0' encoding='UTF-8'?>\n<song xmlns=\"http://openlyrics.info/namespace/2009/song\" version=\"0.8\" createdIn=\"OpenLP 3.1.1\" modifiedIn=\"OpenLP 3.1.1\" modifiedDate=\"2024-03-21T18:39:04\"><properties><titles><title>Praise God, from Whom All Blessings Flow</title><title>Doxology</title></titles><copyright>public domain</copyright><verseOrder>v1</verseOrder><authors><author>Thomas Ken</author></authors><songbooks><songbook name=\"United Methodist Hymnal\" entry=\"95\"/></songbooks></properties><lyrics><verse name=\"v1\"><lines>Praise God, from whom all blessings flow;<br/>Praise Him, all creatures here below;<br/>Praise Him above, ye heavenly host;<br/>Praise Father, Son, and Holy Ghost. Amen.</lines></verse></lyrics></song>",
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "Praise God, from whom all bles",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "V1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Offertory Prayer",
+    "footer": [
+     "Offertory Prayer Copyright General Board of Discipleship. www.GBOD.org Used by permission."
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "Attentive God, you see us as w",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "song_closing_holder",
+    "footer": [
+     "song_closing_holder "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "script use only",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "songs",
+    "plugin": "songs",
+    "theme": null,
+    "title": "song_closing",
+    "footer": [
+     "song_closing",
+     "Written by: Daren Junker",
+     "© na",
+     "Other #3"
+    ],
+    "type": 1,
+    "audit": [
+     "song_closing",
+     [
+      "Daren Junker"
+     ],
+     "na",
+     ""
+    ],
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     8,
+     9,
+     13,
+     22
+    ],
+    "search": "",
+    "data": {
+     "title": "song closing@",
+     "alternate_title": "",
+     "authors": "Daren Junker",
+     "ccli_number": "",
+     "copyright": "na"
+    },
+    "xml_version": "<?xml version='1.0' encoding='UTF-8'?>\n<song xmlns=\"http://openlyrics.info/namespace/2009/song\" version=\"0.8\" createdIn=\"OpenLP 3.1.7\" modifiedIn=\"OpenLP 3.1.7\" modifiedDate=\"2026-03-01T21:38:20\"><properties><titles><title>song_closing</title></titles><copyright>na</copyright><authors><author>Daren Junker</author></authors><songbooks><songbook name=\"Other\" entry=\"3\"/></songbooks></properties><lyrics><verse name=\"v1\"><lines>to replaced by script</lines></verse></lyrics></song>",
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "to replaced by script",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "V1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "U000 Congregation chooses",
+    "footer": [
+     "U000 Congregation chooses "
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "Congregational Choice",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "custom",
+    "plugin": "custom",
+    "theme": null,
+    "title": "Benediction",
+    "footer": [
+     "Benediction ©2001 Nathan Nettleton www.laughingbird.net"
+    ],
+    "type": 1,
+    "audit": "",
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     13,
+     8,
+     14
+    ],
+    "search": "",
+    "data": "",
+    "xml_version": null,
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "{y}Go now, and follow in the f",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "1"
+    },
+    {
+     "title": "{y}And may God protect you alo",
+     "raw_slide": "[fixture slide 2]",
+     "verseTag": "2"
+    },
+    {
+     "title": "{p}{y}We go in peace to love a",
+     "raw_slide": "[fixture slide 3]",
+     "verseTag": "3"
+    }
+   ]
+  }
+ },
+ {
+  "serviceitem": {
+   "header": {
+    "name": "songs",
+    "plugin": "songs",
+    "theme": null,
+    "title": "Departure: God Be with You Till We Meet Again",
+    "footer": [
+     "Departure: God Be with You Till We Meet Again",
+     "Written by: Jeremiah E. Rankin and William G. Tomer",
+     "© public domain",
+     "United Methodist Hymnal #672"
+    ],
+    "type": 1,
+    "audit": [
+     "Departure: God Be with You Till We Meet Again",
+     [
+      "Jeremiah E. Rankin",
+      "William G. Tomer"
+     ],
+     "public domain",
+     ""
+    ],
+    "notes": "",
+    "from_plugin": false,
+    "capabilities": [
+     2,
+     1,
+     5,
+     8,
+     9,
+     13,
+     22
+    ],
+    "search": "",
+    "data": {
+     "title": "departure god be with you till we meet again@",
+     "alternate_title": "",
+     "authors": "Jeremiah E. Rankin, William G. Tomer",
+     "ccli_number": "",
+     "copyright": "public domain"
+    },
+    "xml_version": "<?xml version='1.0' encoding='UTF-8'?>\n<song xmlns=\"http://openlyrics.info/namespace/2009/song\" version=\"0.8\" createdIn=\"OpenLP 3.0.2\" modifiedIn=\"OpenLP 3.0.2\" modifiedDate=\"2023-10-09T21:18:49\"><properties><titles><title>Departure: God Be with You Till We Meet Again</title></titles><copyright>public domain</copyright><verseOrder>v1 c1</verseOrder><authors><author>Jeremiah E. Rankin</author><author>William G. Tomer</author></authors><songbooks><songbook name=\"United Methodist Hymnal\" entry=\"672\"/></songbooks></properties><lyrics><verse name=\"v1\"><lines>God be with you till we meet again;<br/>by his counsels guide, uphold you,<br/>with his sheep securely fold you;<br/>God be with you till we meet again.</lines></verse><verse name=\"c1\"><lines>Till we meet, till we meet,<br/>till we meet at Jesus' feet;<br/>till we meet, till we meet,<br/>God be with you till we meet again.</lines></verse></lyrics></song>",
+    "auto_play_slides_once": false,
+    "auto_play_slides_loop": false,
+    "timed_slide_interval": 0,
+    "start_time": 0,
+    "end_time": 0,
+    "media_length": 0,
+    "background_audio": [],
+    "theme_overwritten": false,
+    "will_auto_start": false,
+    "processor": null,
+    "metadata": [],
+    "sha256_file_hash": null,
+    "stored_filename": null
+   },
+   "data": [
+    {
+     "title": "God be with you till we meet a",
+     "raw_slide": "[fixture slide 1]",
+     "verseTag": "V1"
+    },
+    {
+     "title": "Till we meet, till we meet,",
+     "raw_slide": "[fixture slide 2]",
+     "verseTag": "C1"
+    }
+   ]
+  }
+ }
+]
