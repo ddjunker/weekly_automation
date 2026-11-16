@@ -33,6 +33,7 @@ from scripts.utils.placeholder import (
     write_block,
 )
 from scripts.utils.text_clean import clean_text, xml_to_text
+from scripts.utils.web_sources import SourceUnavailable, fetcher_for, parse_cal_date
 from scripts.utils.openlp import (
     find_custom_slides,
     get_scripture_text,
@@ -295,6 +296,84 @@ def gather_scripture_text(md: str) -> str:
 
 
 
+# ---------------- Offertory + Benediction ----------------
+
+# (label, source placeholder, text placeholder)
+WEB_TEXT_SOURCES = (
+    ("Offertory Prayer (Primary)", "offertory_source", "offertory_source_text"),
+    ("Offertory Prayer (Alternate)", "offertory_source_alt", "offertory_source_alt_text"),
+    ("Commission & Benediction", "benediction_source", "benediction_text"),
+    ("Commission & Benediction (Alt)", "benediction_source_alt", "benediction_text_alt"),
+)
+
+
+def gather_web_texts(md: str) -> str:
+    """
+    Fill the offertory and benediction blocks from their source URLs.
+
+    Known sites are read directly for the master's {cal_date}. Anything they
+    can't supply, and any other site, falls back to the browser for a manual copy.
+    """
+    day = parse_cal_date(extract_block(md, "cal_date"))
+    manual: list[tuple[str, str, str]] = []
+
+    for label, source_key, text_key in WEB_TEXT_SOURCES:
+        url = extract_clean(md, source_key)
+        if not url or url.lower() == "na":
+            print(f"\n=== {label} ===\nSkipped (source='{url}')")
+            continue
+        if not url.lower().startswith("http"):
+            print(f"\n=== {label} ===\nSkipped (invalid URL='{url}')")
+            continue
+
+        fetch = fetcher_for(url)
+        if fetch and day:
+            try:
+                text = fetch(day)
+            except SourceUnavailable as e:
+                print(f"\n=== {label} ===\nAutomatic fetch failed ({e}); will ask for a manual copy.")
+            else:
+                print(f"\n=== {label} ===\nFetched {len(text)} characters for {day:%B} {day.day}.")
+                md = set_block(md, text_key, text)
+                continue
+        elif fetch:
+            print(f"\n=== {label} ===\nNo readable {{cal_date}} in the master; will ask for a manual copy.")
+
+        manual.append((label, url, text_key))
+
+    if manual:
+        md = _capture_manually(md, manual)
+    return md
+
+
+def _capture_manually(md: str, items: list[tuple[str, str, str]]) -> str:
+    """Open each source in Firefox and take the user's clipboard copy."""
+    if check_firefox_running():
+        print("Closing existing Firefox instances...")
+        close_firefox_instances()
+
+    with sync_playwright() as p:
+        context = p.firefox.launch_persistent_context(
+            user_data_dir=str(config.browser_profile),
+            headless=False,
+            firefox_user_prefs={
+                "dom.events.asyncClipboard.readText": True,
+                "dom.events.testing.asyncClipboard": True,
+                "permissions.default.clipboard-read": 1,
+                "permissions.default.clipboard-write": 1,
+            }
+        )
+        page = context.new_page()
+        captured = [(text_key, capture_clipboard(page, label, url)) for label, url, text_key in items]
+        context.close()
+
+    for text_key, text in captured:
+        if text:
+            md = set_block(md, text_key, text)
+    return md
+
+
+
 # ---------------- Dry-run checks ----------------
 
 def _check_scripture(md: str) -> list[dict]:
@@ -366,7 +445,7 @@ def _write_text_check_report(master_path: Path, results: list[dict]) -> Path:
         lines.append("")
 
     if not results:
-        lines.append("*(No checkable items found — offertory/benediction require interactive capture)*\n")
+        lines.append("*(No checkable items found — offertory/benediction are not checked here)*\n")
 
     report_path.write_text("\n".join(lines), encoding="utf-8")
     return report_path
@@ -404,52 +483,7 @@ def main():
     md = master_path.read_text(encoding="utf-8")
 
     if run_w:
-        if check_firefox_running():
-            print("Closing existing Firefox instances...")
-            close_firefox_instances()
-
-        with sync_playwright() as p:
-            context = p.firefox.launch_persistent_context(
-                user_data_dir=str(config.browser_profile),
-                headless=False,
-                firefox_user_prefs={
-                    "dom.events.asyncClipboard.readText": True,
-                    "dom.events.testing.asyncClipboard": True,
-                    "permissions.default.clipboard-read": 1,
-                    "permissions.default.clipboard-write": 1,
-                }
-            )
-            page = context.new_page()
-
-            off1_url = extract_clean(md, "offertory_source")
-            off2_url = extract_clean(md, "offertory_source_alt")
-            ben1_url = extract_clean(md, "benediction_source")
-            ben2_url = extract_clean(md, "benediction_source_alt")
-
-            def maybe_capture(page, label, url):
-                if not url or url.lower() == "na":
-                    print(f"\n=== {label} ===\nSkipped (source='{url}')")
-                    return ""
-                if not url.lower().startswith("http"):
-                    print(f"\n=== {label} ===\nSkipped (invalid URL='{url}')")
-                    return ""
-                return capture_clipboard(page, label, url)
-
-            off1 = maybe_capture(page, "Offertory Prayer (Primary)", off1_url)
-            off2 = maybe_capture(page, "Offertory Prayer (Alternate)", off2_url)
-            ben1 = maybe_capture(page, "Commission & Benediction", ben1_url)
-            ben2 = maybe_capture(page, "Commission & Benediction (Alt)", ben2_url)
-
-            context.close()
-
-        if off1:
-            md = set_block(md, "offertory_source_text", off1)
-        if off2:
-            md = set_block(md, "offertory_source_alt_text", off2)
-        if ben1:
-            md = set_block(md, "benediction_text", ben1)
-        if ben2:
-            md = set_block(md, "benediction_text_alt", ben2)
+        md = gather_web_texts(md)
 
     if run_s:
         md = gather_scripture_text(md)
