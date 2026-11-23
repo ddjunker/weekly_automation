@@ -101,8 +101,12 @@ Ubuntu's default apt repository includes GIMP 2.10, which is not compatible with
 ```bash
 sudo add-apt-repository ppa:ubuntuhandbook1/gimp-3
 sudo apt update
-sudo apt install gimp
+sudo apt install gimp libumfpack6
 ```
+
+`libumfpack6` is a dependency of the PPA's GEGL package that it does not pull in
+itself. Without it every GIMP run prints a harmless but noisy
+`matting-levin.so load error: libumfpack.so.6` message.
 
 Verify: `gimp --version` should report 3.x. No `gimp_bin_dir` setting is needed — the script finds GIMP automatically via PATH.
 
