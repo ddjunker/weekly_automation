@@ -25,7 +25,7 @@ SONG_ID_RE = re.compile(
 )
 
 # Values that mean "this slot is deliberately not a hymn".
-SKIP_MARKERS = frozenset({"tbd", "omit", "delete", "na", "congregational choice"})
+SKIP_MARKERS = frozenset({"tbd", "omit", "delete", "congregational choice"})
 
 HYMNALS: dict[str, dict[str, str]] = {
     "elkton": {

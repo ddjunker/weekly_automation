@@ -145,16 +145,54 @@ python3 -m scripts.welcome "Master 2025-11-23.md"
 python3 -m scripts.publish "Master 2025-11-23.md"
 ```
 
+### Master file conventions
+
+Every script reads the master the same way (`scripts/utils/placeholder.py`).
+
+**Blocks.** A placeholder's value is everything below its `{token}` line up to the
+next line that holds only a placeholder (the `=={token}==` highlight form and a
+trailing `%% note %%` are allowed on that line). Headings and `---` rules are *not*
+boundaries: text between a block and the next placeholder belongs to that block.
+When a gather writes a block, it replaces all of it, so a heading sitting directly
+under a block that gets filled is overwritten. For example, `# Music` follows
+`{benediction_text_alt}` in the template and is lost if an alternate benediction is
+gathered.
+
+**`omit` / `delete`: intentionally left out.** Put `omit` (or `delete`) on the
+first non-empty line of a block, case-insensitive. Notes may follow on later lines.
+The scripts then treat the value as empty:
+- gathers and prepub skip the lookup (no "AoF pomit" searches)
+- publish drops template lines whose only content is that placeholder in markdown
+  outputs, and empties it in Writer outputs; any text under the marker is discarded
+  with a warning
+- in song slots, `tbd` and `congregational choice` are also accepted as "not a hymn"
+
+`na` / `n/a` are **not** markers. They were alpha-era conventions and are read as
+literal values. Use `omit`.
+
+**`%% comments %%`: notes for humans.** A comment that opens and closes inside one
+block is stripped from the value, so `{aof_ref} %% eg. 38top %%` and a note under a
+value are safe. Comments are **not** a way to disable placeholders: tokens inside
+`%% … %%` are still found and read, and a comment spanning several blocks can have
+its `%%` swallowed into a value or deleted when a block is rewritten. To switch a
+section off, use `omit`, or delete its placeholders.
+
+**Deleted placeholders.** If a placeholder is removed from the master, gathers read
+it as empty and move on. A gather that tries to write to it lists it as missing at
+the end of the run. Publish removes the token from the output with a warning, or
+fails under `--strict`.
+
 ### prepub.py — pre-publication checks
 
 Validates all resources against local databases without writing to the master file. Run this first to catch missing or ambiguous entries before gathering.
 
 | Flag | Checks |
 |------|--------|
-| `-t` | Scripture texts, CtW and AoF custom slides |
+| `-t` | Scripture texts (both churches), CtW custom slides (both churches), AoF custom slides (Elkton only — LB does not use AoF) |
 | `-m` | Songs (hymnal DB and CCLI lyrics) |
 
 Omitting both flags runs all checks. Writes a `_text_check.md` and/or `_music_check.md` report next to the master file.
+An `{aof_ref}` or `{ctw_ref}` marked `omit` is not looked up (see [Master file conventions](#master-file-conventions)).
 
 ### Call to Worship — per-church exact matching
 

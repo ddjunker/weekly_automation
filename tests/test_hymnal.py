@@ -37,7 +37,7 @@ def test_values_that_are_not_hymnal_ids(raw):
     assert parse_song_ref(raw) is None
 
 
-@pytest.mark.parametrize("raw", ["tbd", "TBD", "omit", "na", "congregational choice", "  tbd  "])
+@pytest.mark.parametrize("raw", ["tbd", "TBD", "omit", "congregational choice", "  tbd  "])
 def test_skip_markers(raw):
     assert is_skip_marker(raw) is True
 

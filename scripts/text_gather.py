@@ -319,7 +319,7 @@ def gather_web_texts(md: str) -> str:
 
     for label, source_key, text_key in WEB_TEXT_SOURCES:
         url = extract_clean(md, source_key)
-        if not url or url.lower() == "na":
+        if not url:
             print(f"\n=== {label} ===\nSkipped (source='{url}')")
             continue
         if not url.lower().startswith("http"):
@@ -396,7 +396,7 @@ def _check_scripture(md: str) -> list[dict]:
 
 
 def _check_custom_slides(md: str, check_ctw: bool = True, check_aof: bool = True) -> list[dict]:
-    """Check CtW and AoF custom slide availability without writing. Returns list of result dicts."""
+    """Check CtW (both churches) and AoF (Elkton only) custom slides without writing. Returns list of result dicts."""
     results = []
     ctw_ref = extract_clean(md, "ctw_ref")
     aof_ref = extract_clean(md, "aof_ref")
@@ -413,7 +413,8 @@ def _check_custom_slides(md: str, check_ctw: bool = True, check_aof: bool = True
                 results.append({"section": "CtW", "item": prefix, "church": church,
                                 "status": status, "detail": "; ".join(s["raw_title"] for s in matches)})
 
-        if check_aof and aof_ref:
+        # AoF is only used at Elkton (aof_holder exists only in Elkton's template).
+        if check_aof and aof_ref and church == "elkton":
             prefix = f"AoF p{aof_ref}"
             matches = find_custom_slides(church, prefix)
             if not matches:
