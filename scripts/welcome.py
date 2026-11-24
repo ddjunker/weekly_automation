@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 welcome.py
-GIMP 3.x headless updater: set cal_date + cal_church text layers and export PNG.
+GIMP 3.x headless updater: set cal_date + cal_church text layers and export WebP.
 
 Uses existing weekly_automation infrastructure for config, placeholder extraction,
 and file handling.
@@ -296,16 +296,16 @@ def _set_text_layer_content(layer: Any, value: str, layer_name: str) -> None:
     )
 
 
-def update_welcome_slide_xcf_to_png(
+def update_welcome_slide_xcf_to_webp(
     template_xcf: str,
-    output_png: str,
+    output_webp: str,
     cal_date_text: str,
     cal_church_text: str,
     layer_date_name: str = "cal_date",
     layer_church_name: str = "cal_church",
 ):
     template_xcf = str(template_xcf)
-    output_png = str(output_png)
+    output_webp = str(output_webp)
 
     Gimp, Gio = _setup_gimp_runtime()
 
@@ -336,8 +336,8 @@ def update_welcome_slide_xcf_to_png(
     _set_text_layer_content(layer_date, cal_date_text, layer_date_name)
     _set_text_layer_content(layer_church, cal_church_text, layer_church_name)
 
-    # Export PNG (exporter chosen by file extension)
-    out_file = Gio.File.new_for_path(output_png)
+    # Export WebP (exporter chosen by file extension)
+    out_file = Gio.File.new_for_path(output_webp)
     Gimp.file_save(Gimp.RunMode.NONINTERACTIVE, image, out_file, None)
 
     # Clean up
@@ -349,7 +349,7 @@ def main(argv=None):
     _ensure_gimp_runtime_or_reinvoke(argv_list)
 
     parser = argparse.ArgumentParser(
-        description="Update a GIMP welcome-slide template from Master.md and export PNG"
+        description="Update a GIMP welcome-slide template from Master.md and export WebP"
     )
     parser.add_argument(
         "master",
@@ -365,7 +365,7 @@ def main(argv=None):
     parser.add_argument(
         "--output",
         default="",
-        help="Output .png filename or absolute path (single-template mode only)",
+        help="Output .webp filename or absolute path (single-template mode only)",
     )
     parser.add_argument("--layer-date", default="cal_date", help="Text layer name for date")
     parser.add_argument("--layer-church", default="cal_church", help="Text layer name for church")
@@ -395,11 +395,11 @@ def main(argv=None):
         if args.output:
             output_path = _resolve_path(args.output, projection_dir)
         else:
-            output_path = template_path.with_suffix(".png")
+            output_path = template_path.with_suffix(".webp")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        update_welcome_slide_xcf_to_png(
+        update_welcome_slide_xcf_to_webp(
             str(template_path),
             str(output_path),
             cal_date_text,
@@ -407,7 +407,7 @@ def main(argv=None):
             layer_date_name=args.layer_date,
             layer_church_name=args.layer_church,
         )
-        logging.info("Exported welcome slide PNG: %s", output_path)
+        logging.info("Exported welcome slide WebP: %s", output_path)
 
 
 if __name__ == "__main__":
